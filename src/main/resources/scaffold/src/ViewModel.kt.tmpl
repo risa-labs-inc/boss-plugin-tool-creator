@@ -1,0 +1,22 @@
+package ai.rever.boss.plugin.dynamic.@@PACKAGE@@
+
+import ai.rever.boss.plugin.api.PluginContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * State holder for the @@TOOL_NAME_KT@@ panel.
+ *
+ * TODO: implement the tool behavior — @@TOOL_DESCRIPTION_KT@@
+ */
+class @@CLASS_PREFIX@@ViewModel(private val context: PluginContext) {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val _status = MutableStateFlow("Not implemented yet")
+    val status: StateFlow<String> = _status.asStateFlow()
+}

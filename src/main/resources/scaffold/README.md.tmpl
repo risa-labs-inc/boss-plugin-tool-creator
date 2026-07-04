@@ -1,0 +1,23 @@
+# @@TOOL_NAME@@
+
+@@TOOL_DESCRIPTION@@
+
+A [BOSS](https://github.com/risa-labs-inc/BossConsole) dynamic plugin, scaffolded
+by the BOSS Tool Creator.
+
+## Build
+
+```bash
+./gradlew buildPluginJar    # output: build/libs/@@REPO_NAME@@-<version>.jar
+```
+
+Copy the jar to `~/.boss/plugins/` and reload plugins in BOSS to test locally.
+
+## Requested permissions
+
+@@PERMISSIONS_BULLETS@@
+
+## Release
+
+Pushing to `main` builds the jar, creates a GitHub release, and publishes to the
+BOSS Plugin Store (requires the `BOSS_STORE_PLUGIN_PUBLISH_KEY` repo secret).

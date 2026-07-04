@@ -1,0 +1,17 @@
+{
+  "manifestVersion": 1,
+  "pluginId": "ai.rever.boss.plugin.dynamic.toolcreator",
+  "displayName": "Tool Creator",
+  "version": "0.1.0",
+  "apiVersion": "1.0.51",
+  "minBossVersion": "9.2.20",
+  "mainClass": "ai.rever.boss.plugin.dynamic.toolcreator.ToolCreatorDynamicPlugin",
+  "type": "panel",
+  "description": "Scaffold new BOSS plugins and start building them with Claude Code, Codex, Gemini, or OpenCode",
+  "author": "Risa Labs",
+  "url": "https://github.com/risa-labs-inc/boss-plugin-tool-creator",
+  "panel": {
+    "position": "left_bottom",
+    "priority": 30
+  }
+}

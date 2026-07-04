@@ -1,0 +1,138 @@
+# Tool Creator — build the @@TOOL_NAME@@ BOSS plugin
+
+You are working in a freshly scaffolded **BOSS dynamic plugin** repository. The
+skeleton already compiles: build files, `plugin.json` manifest, entry class,
+panel UI, and release CI are in place. Your job is to implement the tool's
+actual behavior.
+
+## The tool to build
+
+- **Name**: @@TOOL_NAME@@
+- **Plugin id**: `@@PLUGIN_ID@@`
+- **What it should do**: @@TOOL_DESCRIPTION@@
+- **Granted permissions** (also listed in `plugin.json` `requiredPermissions`):
+@@PERMISSIONS_BULLETS@@
+
+Stay within the granted permissions: do not add capabilities (shelling out,
+network calls, secret access…) the user did not grant.
+
+## BOSS plugin ground rules
+
+1. **API dependency**: `boss-plugin-api` is `compileOnly` — the host classloader
+   provides it at runtime. Never bundle or shade it into the plugin jar.
+2. **Entry point**: `@@CLASS_PREFIX@@DynamicPlugin` implements
+   `ai.rever.boss.plugin.api.DynamicPlugin`. All registration happens in
+   `register(context: PluginContext)`, cleanup in `dispose()`.
+3. **UI**: Compose Multiplatform desktop APIs only (never Android). The sidebar
+   panel is `@@CLASS_PREFIX@@Component : PanelComponentWithUI` with
+   `@Composable fun Content()`. Wrap UI in `BossTheme { }` and use
+   `ai.rever.boss.plugin.ui.BossThemeColors` tokens for styling.
+4. **State**: plain ViewModel class + `kotlinx.coroutines.flow.StateFlow`,
+   collected with `collectAsState()` in composables.
+5. **Null-safety**: every provider on `PluginContext` may be **null**
+   (`workspaceDataProvider`, `splitViewOperations`, `activeTabsProvider`,
+   `notificationProvider`, `genericDialogProvider`, `gitDataProvider`,
+   `secretDataProvider`, `fileSystemDataProvider`, `browserService`, …).
+   Degrade gracefully, never crash. Prefer host providers over raw
+   `ProcessBuilder`/`java.io` when one exists.
+6. **Version**: `build.gradle.kts` `version` is the single source of truth;
+   `processResources` syncs it into `plugin.json`. Never hand-edit the version
+   in `plugin.json`, and do NOT bump the version while iterating locally —
+   keep overwriting the same jar; CI bumps on release.
+7. **Style**: every Kotlin file ends with a newline. Match the skeleton's code
+   style.
+
+## Exposing the tool as an MCP tool (AI-agent callable)
+
+If the tool's function should be callable by AI agents (and the `mcp.tools`
+permission was granted), expose it through the boss MCP server. Tools registered
+this way appear to agents as `mcp__boss__<tool_name>` while the plugin is loaded
+and disappear when it unloads.
+
+Implement `McpToolProvider` (all types in `ai.rever.boss.plugin.api`):
+
+```kotlin
+class @@CLASS_PREFIX@@McpToolProvider(
+    override val providerId: String,          // convention: the pluginId
+    private val viewModel: @@CLASS_PREFIX@@ViewModel,
+) : McpToolProvider {
+    override fun tools(): List<McpToolDefinition> = listOf(
+        McpToolDefinition(
+            name = "@@PACKAGE@@_run",         // snake_case, verb-like
+            description = "One-line description agents will read",
+            inputSchema = """
+                {
+                  "type": "object",
+                  "properties": {
+                    "query": {"type": "string", "description": "What to run"}
+                  },
+                  "required": ["query"]
+                }
+            """.trimIndent(),
+            readOnly = true,                  // false if the tool mutates state
+            handler = { args ->
+                val query = args.string("query")
+                    ?: return@McpToolDefinition McpToolResult("Missing query", isError = true)
+                McpToolResult(viewModel.runForAgent(query))
+            },
+        )
+    )
+}
+```
+
+Register it in `register(context)` and the host auto-unregisters on unload:
+
+```kotlin
+context.registerMcpToolProvider(@@CLASS_PREFIX@@McpToolProvider(pluginId, viewModel))
+```
+
+MCP rules of thumb:
+- `McpToolHandler.call` is `suspend` — keep it cancellation-cooperative, no
+  blocking sleeps; wrap blocking IO in `withContext(Dispatchers.IO)`.
+- `McpToolArgs` accessors: `string(key)`, `boolean(key)`, `int(key)`,
+  `double(key)`, `has(key)`; raw JSON in `args.raw`.
+- Return `McpToolResult(text, isError = true)` for failures instead of throwing.
+- `tools()` is snapshotted at (re)registration — it is not reactive.
+- For permission-gated tools use
+  `McpToolDefinition.withRbac(name, description, handler, requiredPermissions = listOf(...), requiresAdmin = false)`.
+
+## Useful PluginContext surface
+
+- `context.panelRegistry.registerPanel(info) { ctx, panelInfo -> Component(...) }` — already wired.
+- `context.notificationProvider?.showToast(message, type, title = …)` — toasts.
+- `context.genericDialogProvider` — host-styled dialogs (`showTextInputDialog`,
+  `showConfirmationDialog`, `showChoiceDialog`, `showProgressDialog`, all suspend).
+- `context.splitViewOperations?.openTab(tabInfo)` — open tabs (e.g.
+  `ai.rever.boss.plugin.tab.terminal.TerminalTabInfo` for a terminal running a
+  command in a working directory).
+- `context.getPluginAPI(SomePluginAPI::class.java)` — consume other plugins'
+  APIs (e.g. `TerminalTabPluginAPI` for terminal control).
+- `context.pluginScope` — lifecycle-scoped `CoroutineScope`.
+
+## Build & test loop
+
+```bash
+./gradlew buildPluginJar          # output: build/libs/@@REPO_NAME@@-<version>.jar
+cp build/libs/@@REPO_NAME@@-*.jar ~/.boss/plugins/
+```
+
+Developers running a dev-mode BOSS use `~/.boss_debug/plugins` instead. Reload
+plugins in BOSS (Toolbox) or restart the app to pick up the new jar.
+
+## Release
+
+Pushing to `main` triggers `.github/workflows/build.yml`, which delegates to the
+shared release workflow: bumps the version with a `[skip ci]` commit, builds the
+jar, creates a GitHub release, and publishes to the BOSS Plugin Store (needs the
+`BOSS_STORE_PLUGIN_PUBLISH_KEY` repo secret). Never re-run a failed release run
+from the Actions UI — dispatch a fresh run instead.
+
+## What to do now
+
+1. Read `plugin.json`, `build.gradle.kts`, and the skeleton sources under
+   `src/main/kotlin/ai/rever/boss/plugin/dynamic/@@PACKAGE@@/`.
+2. Plan the implementation of: @@TOOL_DESCRIPTION@@
+3. Implement it following the ground rules — panel UI first, then the MCP tool
+   surface if `mcp.tools` was granted.
+4. Run `./gradlew buildPluginJar` and fix until it builds clean.
+5. Summarize what you built and how to test it inside BOSS.
