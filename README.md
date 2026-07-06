@@ -3,6 +3,9 @@
 Sidebar plugin that scaffolds new BOSS plugins and hands them straight to an AI
 coding agent.
 
+> **Admin-gated**: installing this plugin requires the `plugins.admin.publish` and
+> `api_key.create` permissions (held by the `boss_admin` role; `admin` bypasses).
+
 Clicking the Tool Creator icon opens a dialog asking for:
 
 - **Plugin name** and **tool description**

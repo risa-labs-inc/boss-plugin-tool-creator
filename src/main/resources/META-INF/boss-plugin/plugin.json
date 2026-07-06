@@ -10,6 +10,7 @@
   "description": "Scaffold new BOSS plugins and start building them with Claude Code, Codex, Gemini, or OpenCode",
   "author": "Risa Labs",
   "url": "https://github.com/risa-labs-inc/boss-plugin-tool-creator",
+  "requiredPermissions": ["plugins.admin.publish", "api_key.create"],
   "panel": {
     "position": "left_bottom",
     "priority": 30

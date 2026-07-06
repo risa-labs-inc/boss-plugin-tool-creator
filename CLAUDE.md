@@ -9,6 +9,11 @@ Scaffold new BOSS plugins and start building them with Claude Code, Codex, Gemin
 - **Plugin ID**: `ai.rever.boss.plugin.dynamic.toolcreator`
 - **Main Class**: `ai.rever.boss.plugin.dynamic.toolcreator.ToolCreatorDynamicPlugin`
 - **API Version**: 1.0.51
+- **Install gate**: `requiredPermissions: ["plugins.admin.publish", "api_key.create"]` —
+  held by the `boss_admin` role; the `admin` role bypasses permission checks. Enforced
+  at store download, Toolbox install, and host activation. Do NOT use the legacy
+  `requiresAdmin` flag (it matches only the literal `admin` role and would exclude
+  `boss_admin`).
 
 ## Essential Commands
 
@@ -49,9 +54,11 @@ permissions, AI CLI picker). "Start building" then:
 3. Bundles the newest `boss-plugin-api-*.jar` it finds (sibling checkout,
    `~/.boss_debug/plugins`, `~/.boss/plugins`) into the repo's `libs/`.
 4. `git init` + initial commit; optionally `gh repo create
-   risa-labs-inc/boss-plugin-<slug> --push` and installs the
+   risa-labs-inc/boss-plugin-<slug> --push`, installs the
    `BOSS_STORE_PLUGIN_PUBLISH_KEY` secret (minted via
-   `pluginStoreApiKeyProvider.createApiKey(scopes=["publish"])`).
+   `pluginStoreApiKeyProvider.createApiKey(scopes=["publish"])`), and — when the
+   scaffold location is the boss_plugins umbrella root — registers the repo as a
+   git submodule there (`git submodule add` + local commit, push left to user).
 5. Opens a BossTerm tab via `splitViewOperations.openTab(TerminalTabInfo(...))`
    cd'd into the repo, running the chosen CLI with a kick-off prompt that
    engages the skill (`CliAgent.launchCommand()`).

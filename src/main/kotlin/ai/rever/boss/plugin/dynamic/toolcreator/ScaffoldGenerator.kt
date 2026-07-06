@@ -42,9 +42,10 @@ class ScaffoldGenerator {
     // ---------------------------------------------------------------- tokens
 
     private fun tokensFor(spec: ScaffoldSpec): Map<String, String> {
-        val permissionsJson =
-            if (spec.permissions.isEmpty()) "[]"
-            else spec.permissions.joinToString(", ", "[", "]") { "\"${it.id}\"" }
+        // Dialog permissions deliberately do NOT go into the scaffolded manifest's
+        // requiredPermissions: the store/host treat that field as an RBAC install
+        // gate, and these ids aren't in the RBAC catalog. They inform the AI agent
+        // via the skill body and README instead.
         val permissionsBullets =
             if (spec.permissions.isEmpty()) "- (none requested)"
             else spec.permissions.joinToString("\n") { "- `${it.id}` — ${it.description}" }
@@ -60,7 +61,6 @@ class ScaffoldGenerator {
             "CLASS_PREFIX" to spec.classPrefix,
             "PLUGIN_ID" to spec.pluginId,
             "REPO_NAME" to spec.repoName,
-            "PERMISSIONS_JSON_ARRAY" to permissionsJson,
             "PERMISSIONS_BULLETS" to permissionsBullets,
             "AGENT_DISPLAY" to spec.agent.displayName,
         )
@@ -244,14 +244,51 @@ class ScaffoldGenerator {
 
         if (publishKey.isNullOrBlank()) {
             log("Warning: no Plugin Store key available — set BOSS_STORE_PLUGIN_PUBLISH_KEY on the repo before releasing")
+        } else {
+            val secret = run(
+                dir, "gh", "secret", "set", "BOSS_STORE_PLUGIN_PUBLISH_KEY", "--repo", fullRepo,
+                stdin = publishKey,
+            )
+            if (secret.exitCode == 0) log("Installed BOSS_STORE_PLUGIN_PUBLISH_KEY secret — release CI is ready")
+            else log("Warning: setting CI secret failed: ${secret.output.take(200)}")
+        }
+
+        registerAsSubmodule(spec, log)
+    }
+
+    /**
+     * When the new repo was scaffolded directly inside the boss_plugins umbrella
+     * checkout, register it there as a git submodule (matching .gitmodules house
+     * pattern) and commit the wiring locally. The umbrella push is left to the
+     * user. Skipped silently-with-a-log for any other location.
+     */
+    private fun registerAsSubmodule(spec: ScaffoldSpec, log: (String) -> Unit) {
+        val parent = File(spec.parentDir)
+        val topLevel = run(parent, "git", "rev-parse", "--show-toplevel")
+        val isUmbrellaRoot = topLevel.exitCode == 0 &&
+            File(topLevel.output.trim()).canonicalFile == parent.canonicalFile &&
+            File(parent, ".gitmodules").isFile
+        if (!isUmbrellaRoot) {
+            log("Skipping submodule registration — ${parent.absolutePath} is not the boss_plugins repo root")
             return
         }
-        val secret = run(
-            dir, "gh", "secret", "set", "BOSS_STORE_PLUGIN_PUBLISH_KEY", "--repo", fullRepo,
-            stdin = publishKey,
+
+        val url = "https://github.com/risa-labs-inc/${spec.repoName}.git"
+        val add = run(parent, "git", "submodule", "add", url, spec.slug)
+        if (add.exitCode != 0) {
+            log("Warning: git submodule add failed: ${add.output.take(200)}")
+            return
+        }
+        val commit = run(
+            parent, "git", "commit",
+            "-m", "➕ Add ${spec.slug} plugin as submodule",
+            "--", ".gitmodules", spec.slug,
         )
-        if (secret.exitCode == 0) log("Installed BOSS_STORE_PLUGIN_PUBLISH_KEY secret — release CI is ready")
-        else log("Warning: setting CI secret failed: ${secret.output.take(200)}")
+        if (commit.exitCode == 0) {
+            log("Registered ${spec.slug} as a boss_plugins submodule (committed locally — push boss_plugins when ready)")
+        } else {
+            log("Warning: submodule commit failed: ${commit.output.take(200)}")
+        }
     }
 
     // --------------------------------------------------------------- process
