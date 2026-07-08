@@ -109,6 +109,51 @@ MCP rules of thumb:
   APIs (e.g. `TerminalTabPluginAPI` for terminal control).
 - `context.pluginScope` — lifecycle-scoped `CoroutineScope`.
 
+## Extending host UI (api ≥ 1.0.62, host ≥ the platform release)
+
+All hooks below are default no-ops on older hosts (degrade gracefully) and are
+auto-unregistered when the plugin unloads. All types live in
+`ai.rever.boss.plugin.api`.
+
+- **Panel top-bar menu items** — add entries to the "…"/right-click menu of
+  YOUR panel, ANOTHER plugin's panel (by its panel-id string), or ALL panels:
+  `context.registerPanelMenuContribution(object : PanelMenuContribution {
+      override val contributionId = "@@PLUGIN_ID@@:main"
+      override val targetPanels = null              // null = ALL panels
+      override fun items(panelId: PanelId) = listOf(PanelMenuItem(id = "sync", label = "Sync now"))
+      override fun onItemClick(panelId: PanelId, itemId: String, windowId: String?) { /* route */ }
+  })` — `items()` may run on every top-bar recomposition: keep it cheap and
+  side-effect free; re-register to change the item set.
+- **New Tab dialog entry** — give your registered tab type
+  `override val newTabSpec = NewTabSpec(inputLabel = "…")` and
+  `override fun createTabInfo(input: String, context: NewTabContext): TabInfo?`
+  (return null to reject input; dialog stays open).
+- **Settings page** — `context.registerSettingsPage(provider)` with
+  `SettingsPageProvider { pageId = "@@PLUGIN_ID@@:settings"; … @Composable Content() }`.
+  Set `selfScrolling = true` if Content uses LazyColumn or its own scroll
+  (otherwise the host wraps it in a vertical scroll and a nested fill-height
+  scrollable crashes with "unbounded height").
+- **Deep-link actions** — `context.registerDeepLinkActionHandler(handler)`;
+  `boss://plugin?id=<handlerId>&action=<action>&<args…>` then calls
+  `handle(action, params)`. External input: validate every parameter.
+- **Global shortcuts** — `context.registerShortcutActionProvider(provider)`
+  with `PluginShortcutSpec(actionId = "plugin.@@PLUGIN_ID@@.<name>", …)`.
+  Default chords MUST include Cmd/Ctrl/Alt (bare or Shift-only chords are
+  unreachable and register unbound); users can rebind in Settings → Shortcuts.
+- **Status-bar widget** — `context.registerStatusBarItem(provider)`; keep
+  Content a small single-row composable. A crash collapses the widget to an
+  error marker (plugin extension boundary), not the whole bar.
+
+### Version gates — which manifest field to bump
+
+- Uses only **brand-new API types** (shipped by the boss-plugin-api jar alone,
+  e.g. a new plugin-to-plugin interface)? → set `minApiVersion` in
+  `plugin.json` to the SDK version that introduced them.
+- Depends on a **host-rendered capability** (the registries above, a new
+  provider)? → set `minBossVersion` to the host release that renders it.
+- Feature-detect at runtime with
+  `BossApiRuntime.isAtLeast("1.0.62")` instead of crashing on older setups.
+
 ## Build & test loop
 
 ```bash
