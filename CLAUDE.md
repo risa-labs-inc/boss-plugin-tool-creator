@@ -45,7 +45,9 @@ permissions, AI CLI picker). "Start building" then:
 
 1. `ScaffoldGenerator` renders `src/main/resources/scaffold/` templates into a
    new repo (build files, gradle wrapper, plugin.json with the chosen
-   `requiredPermissions`, skeleton panel sources, release CI caller workflow).
+   `requiredPermissions`, skeleton panel sources, and the CI caller workflows —
+   release on push to `main` plus Claude Code review on PRs, both delegating to
+   shared workflows in `risa-labs-inc/BossConsole-Releases`).
 2. Writes the `tool-creator` skill in all four CLI formats:
    `.claude/skills/tool-creator/SKILL.md`, `.codex/skills/tool-creator/SKILL.md`,
    `.gemini/commands/tool-creator.toml`, `.opencode/command/tool-creator.md` —
