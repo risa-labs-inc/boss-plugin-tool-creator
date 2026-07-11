@@ -16,3 +16,4 @@ with `/tool-creator` when implementing or changing the tool's behavior.
 - All Kotlin files end with a newline
 - Version gates: new SDK-only types → `minApiVersion`; host-rendered capabilities (panel menus, settings pages, shortcuts, status bar, New Tab entries) → `minBossVersion`; feature-detect with `BossApiRuntime.isAtLeast(...)`
 - Pushing to `main` releases to the BOSS Plugin Store via `.github/workflows/build.yml`
+- PRs get an automatic Claude Code review via `.github/workflows/claude-code-review.yml` (needs the `ANTHROPIC_API_KEY` repo/org secret; skips quietly without it)

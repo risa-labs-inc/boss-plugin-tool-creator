@@ -111,6 +111,7 @@ class ScaffoldGenerator {
             "build.gradle.kts" to "scaffold/build.gradle.kts.tmpl",
             ".gitignore" to "scaffold/gitignore.tmpl",
             ".github/workflows/build.yml" to "scaffold/workflow-build.yml.tmpl",
+            ".github/workflows/claude-code-review.yml" to "scaffold/workflow-claude-review.yml.tmpl",
             "README.md" to "scaffold/README.md.tmpl",
             "CLAUDE.md" to "scaffold/CLAUDE.md.tmpl",
             "AGENTS.md" to "scaffold/AGENTS.md.tmpl",
