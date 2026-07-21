@@ -8,6 +8,7 @@ import ai.rever.boss.plugin.api.PluginContext
 import ai.rever.boss.plugin.tab.terminal.TerminalTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabType
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
@@ -48,8 +49,7 @@ private fun userFacingApiKeyError(error: Throwable, fallback: String): String {
 
 class ToolCreatorViewModel(
     private val context: PluginContext,
-    private val pendingNewTool: java.util.concurrent.atomic.AtomicBoolean =
-        java.util.concurrent.atomic.AtomicBoolean(false),
+    private val pendingNewTool: AtomicBoolean = AtomicBoolean(false),
 ) {
 
     private val panelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -59,6 +59,7 @@ class ToolCreatorViewModel(
     private val storedPublishKey = AtomicReference<String?>(null)
     private val copiedClipboardKey = AtomicReference<String?>(null)
     private val clipboardCopyGeneration = AtomicLong(0)
+    private val disposed = AtomicBoolean(false)
 
     data class FormState(
         val toolName: String = "",
@@ -176,14 +177,19 @@ class ToolCreatorViewModel(
                 val storedKey = findStoredPublishKey(activeKeys)
                 val displayedKey = storedKey?.keyInfo ?: activeKeys.firstOrNull()
                 storedPublishKey.set(storedKey?.value)
-                _publishApiKey.value = PublishApiKeyState(
-                    permissionChecked = true,
-                    canManageApiKeys = true,
-                    hasPublishApiKey = displayedKey != null,
-                    keyName = displayedKey?.name,
-                    keyPrefix = displayedKey?.keyPrefix,
-                    canCopy = storedKey != null && context.clipboardProvider != null,
-                )
+                _publishApiKey.update { current ->
+                    val sameKey = current.keyPrefix == displayedKey?.keyPrefix
+                    PublishApiKeyState(
+                        permissionChecked = true,
+                        canManageApiKeys = true,
+                        hasPublishApiKey = displayedKey != null,
+                        keyName = displayedKey?.name,
+                        keyPrefix = displayedKey?.keyPrefix,
+                        canCopy = storedKey != null && context.clipboardProvider != null,
+                        justCopied = sameKey && current.justCopied,
+                        copyError = current.copyError.takeIf { sameKey },
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -219,7 +225,7 @@ class ToolCreatorViewModel(
                     }
                     return@launch
                 }
-                pendingPublishKey.set(result.apiKey)
+                if (!disposed.get()) pendingPublishKey.set(result.apiKey)
                 rememberPublishKey(result)
                 val stored = storePublishKeySecret(result)
                 context.notificationProvider?.showToast(
@@ -314,6 +320,7 @@ class ToolCreatorViewModel(
     }
 
     private fun rememberPublishKey(result: ApiKeyCreationResult) {
+        if (disposed.get()) return
         storedPublishKey.set(result.apiKey)
         _publishApiKey.update {
             it.copy(
@@ -509,6 +516,7 @@ class ToolCreatorViewModel(
         _jobs.update { list -> list.map { if (it.id == jobId) transform(it) else it } }
 
     fun dispose() {
+        if (!disposed.compareAndSet(false, true)) return
         clipboardCopyGeneration.incrementAndGet()
         clearCopiedClipboard()
         pendingPublishKey.set(null)
