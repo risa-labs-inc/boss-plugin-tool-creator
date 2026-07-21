@@ -6,6 +6,8 @@ import ai.rever.boss.plugin.tab.terminal.TerminalTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabType
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,6 +26,7 @@ class ToolCreatorViewModel(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val generator = ScaffoldGenerator()
     private val jobIds = AtomicLong(0)
+    private val pendingPublishKey = AtomicReference<String?>(null)
 
     data class FormState(
         val toolName: String = "",
@@ -46,6 +49,15 @@ class ToolCreatorViewModel(
         val ghInstalled: Boolean = true,
         val ghAuthenticated: Boolean = true,
         val checked: Boolean = false,
+    )
+
+    data class PublishApiKeyState(
+        val permissionChecked: Boolean = false,
+        val canManageApiKeys: Boolean = false,
+        val hasPublishApiKey: Boolean? = null,
+        val isChecking: Boolean = false,
+        val isCreating: Boolean = false,
+        val error: String? = null,
     )
 
     enum class JobStatus { RUNNING, SUCCESS, FAILED }
@@ -72,6 +84,9 @@ class ToolCreatorViewModel(
     private val _env = MutableStateFlow(EnvStatus())
     val env: StateFlow<EnvStatus> = _env.asStateFlow()
 
+    private val _publishApiKey = MutableStateFlow(PublishApiKeyState())
+    val publishApiKey: StateFlow<PublishApiKeyState> = _publishApiKey.asStateFlow()
+
     // ------------------------------------------------------------ dialog API
 
     fun openDialog() {
@@ -82,6 +97,113 @@ class ToolCreatorViewModel(
 
     /** True (once) if another plugin requested the New Tool dialog since the last check. */
     fun consumePendingOpenRequest(): Boolean = pendingNewTool.getAndSet(false)
+
+    /**
+     * Check publishing-key readiness without exposing the setup UI to users who
+     * do not have API-key management permission. This mirrors Secret Manager's
+     * runtime permission gate in addition to the plugin manifest's install gate.
+     */
+    fun refreshPublishApiKeyStatus() {
+        val provider = context.pluginStoreApiKeyProvider
+        if (provider == null) {
+            _publishApiKey.value = PublishApiKeyState(permissionChecked = true)
+            return
+        }
+        if (_publishApiKey.value.isChecking || _publishApiKey.value.isCreating) return
+
+        _publishApiKey.update { it.copy(isChecking = true, error = null) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val canManage = provider.canManageApiKeys()
+                if (!canManage) {
+                    _publishApiKey.value = PublishApiKeyState(
+                        permissionChecked = true,
+                        canManageApiKeys = false,
+                    )
+                    return@launch
+                }
+
+                provider.listApiKeys()
+                    .onSuccess { keys ->
+                        val now = System.currentTimeMillis()
+                        val hasPublishKey = keys.any { key ->
+                            !key.isRevoked &&
+                                "publish" in key.scopes &&
+                                (key.expiresAt?.let { it > now } != false)
+                        }
+                        _publishApiKey.value = PublishApiKeyState(
+                            permissionChecked = true,
+                            canManageApiKeys = true,
+                            hasPublishApiKey = hasPublishKey,
+                        )
+                    }
+                    .onFailure { error ->
+                        _publishApiKey.value = PublishApiKeyState(
+                            permissionChecked = true,
+                            canManageApiKeys = true,
+                            error = error.message ?: "Failed to check API keys",
+                        )
+                    }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _publishApiKey.value = PublishApiKeyState(
+                    permissionChecked = true,
+                    error = e.message ?: "Failed to check API-key permission",
+                )
+            }
+        }
+    }
+
+    /**
+     * Create the missing publish-scoped key. Its one-time value stays in memory
+     * until the next GitHub-backed scaffold installs it as the repository secret.
+     */
+    fun createPublishApiKey() {
+        val provider = context.pluginStoreApiKeyProvider ?: return
+        val state = _publishApiKey.value
+        if (!state.permissionChecked || !state.canManageApiKeys || state.isCreating) return
+
+        _publishApiKey.update { it.copy(isCreating = true, error = null) }
+        scope.launch(Dispatchers.IO) {
+            try {
+                provider.createApiKey(
+                    name = "tool-creator: publishing",
+                    scopes = listOf("publish"),
+                ).onSuccess { result ->
+                    pendingPublishKey.set(result.apiKey)
+                    _publishApiKey.update {
+                        it.copy(
+                            hasPublishApiKey = true,
+                            isCreating = false,
+                            error = null,
+                        )
+                    }
+                    context.notificationProvider?.showToast(
+                        message = "Publish API key created and ready for the next GitHub repository",
+                        type = NotificationType.SUCCESS,
+                        title = "Tool Creator",
+                    )
+                }.onFailure { error ->
+                    _publishApiKey.update {
+                        it.copy(
+                            isCreating = false,
+                            error = error.message ?: "Failed to create publish API key",
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _publishApiKey.update {
+                    it.copy(
+                        isCreating = false,
+                        error = e.message ?: "Failed to create publish API key",
+                    )
+                }
+            }
+        }
+    }
 
     private fun refreshEnvStatus() {
         scope.launch(Dispatchers.IO) {
@@ -219,6 +341,7 @@ class ToolCreatorViewModel(
      * key-management rights.
      */
     private suspend fun mintPublishKey(spec: ScaffoldSpec): String? {
+        pendingPublishKey.getAndSet(null)?.let { return it }
         val provider = context.pluginStoreApiKeyProvider ?: return null
         return runCatching {
             provider.createApiKey(

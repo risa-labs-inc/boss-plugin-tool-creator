@@ -2,6 +2,7 @@ package ai.rever.boss.plugin.dynamic.toolcreator
 
 import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.ui.BossThemeColors
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.ButtonDefaults
@@ -52,6 +54,7 @@ import compose.icons.feathericons.Check
 import compose.icons.feathericons.ChevronDown
 import compose.icons.feathericons.ChevronRight
 import compose.icons.feathericons.Folder
+import compose.icons.feathericons.Key
 import compose.icons.feathericons.RefreshCw
 import compose.icons.feathericons.Tool
 
@@ -59,11 +62,13 @@ import compose.icons.feathericons.Tool
 fun ToolCreatorContent(viewModel: ToolCreatorViewModel) {
     val showDialog by viewModel.showDialog.collectAsState()
     val jobs by viewModel.jobs.collectAsState()
+    val publishApiKey by viewModel.publishApiKey.collectAsState()
 
     // Open the dialog when the panel appears if either: another plugin (the
     // Toolbox "Create a new plugin") requested it, or this is a fresh panel with
     // no builds yet. Otherwise just show the panel with its "New Tool…" button.
     LaunchedEffect(Unit) {
+        viewModel.refreshPublishApiKeyStatus()
         if (viewModel.consumePendingOpenRequest() || jobs.isEmpty()) viewModel.openDialog()
     }
 
@@ -91,6 +96,14 @@ fun ToolCreatorContent(viewModel: ToolCreatorViewModel) {
                     color = BossThemeColors.TextSecondary,
                     fontSize = 12.sp,
                 )
+                if (publishApiKey.shouldShowSetup) {
+                    Spacer(Modifier.height(12.dp))
+                    PublishApiKeySetup(
+                        state = publishApiKey,
+                        onCreate = viewModel::createPublishApiKey,
+                        onRetry = viewModel::refreshPublishApiKeyStatus,
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = { viewModel.openDialog() },
@@ -210,6 +223,7 @@ private fun CreateToolDialog(viewModel: ToolCreatorViewModel) {
 private fun CreateToolForm(viewModel: ToolCreatorViewModel, dialogWindow: java.awt.Window?) {
     val form by viewModel.form.collectAsState()
     val env by viewModel.env.collectAsState()
+    val publishApiKey by viewModel.publishApiKey.collectAsState()
 
     BossTheme {
         Surface(
@@ -217,6 +231,14 @@ private fun CreateToolForm(viewModel: ToolCreatorViewModel, dialogWindow: java.a
             color = BossThemeColors.SurfaceColor,
         ) {
             Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+                if (publishApiKey.shouldShowSetup) {
+                    PublishApiKeySetup(
+                        state = publishApiKey,
+                        onCreate = viewModel::createPublishApiKey,
+                        onRetry = viewModel::refreshPublishApiKeyStatus,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
                 DialogTextField(
                     value = form.toolName,
                     onValueChange = viewModel::setToolName,
@@ -402,6 +424,76 @@ private fun CreateToolForm(viewModel: ToolCreatorViewModel, dialogWindow: java.a
                         Text("Start building", color = BossThemeColors.TextPrimary)
                     }
                 }
+            }
+        }
+    }
+}
+
+private val ToolCreatorViewModel.PublishApiKeyState.shouldShowSetup: Boolean
+    get() = permissionChecked && canManageApiKeys && (hasPublishApiKey == false || error != null)
+
+@Composable
+private fun PublishApiKeySetup(
+    state: ToolCreatorViewModel.PublishApiKeyState,
+    onCreate: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = BossThemeColors.WarningColor.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, BossThemeColors.WarningColor.copy(alpha = 0.45f)),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    FeatherIcons.Key,
+                    contentDescription = null,
+                    tint = BossThemeColors.WarningColor,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "Publishing setup",
+                    color = BossThemeColors.TextPrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (state.error == null) {
+                    "Create a publish-scoped API key for the next plugin repository's release workflow."
+                } else {
+                    state.error
+                },
+                color = if (state.error == null) BossThemeColors.TextSecondary else BossThemeColors.ErrorColor,
+                fontSize = 10.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = if (state.hasPublishApiKey == false) onCreate else onRetry,
+                enabled = !state.isCreating && !state.isChecking,
+                colors = ButtonDefaults.buttonColors(backgroundColor = BossThemeColors.WarningColor),
+            ) {
+                if (state.isCreating || state.isChecking) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        color = BossThemeColors.TextPrimary,
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    when {
+                        state.isCreating -> "Creating…"
+                        state.isChecking -> "Checking…"
+                        state.error != null -> "Retry"
+                        else -> "Create publish API key"
+                    },
+                    color = BossThemeColors.TextPrimary,
+                    fontSize = 11.sp,
+                )
             }
         }
     }
