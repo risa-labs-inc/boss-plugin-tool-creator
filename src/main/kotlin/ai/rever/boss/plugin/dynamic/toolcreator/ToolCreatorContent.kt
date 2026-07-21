@@ -523,11 +523,17 @@ private fun ExistingPublishApiKey(
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                if (state.justCopied) "Copied — clears in 45s" else "Copy API key",
+                                if (state.justCopied) "Copied" else "Copy API key",
                                 color = BossThemeColors.TextPrimary,
                                 fontSize = 11.sp,
                             )
                         }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Clipboard clears automatically after 45 seconds.",
+                            color = BossThemeColors.TextMuted,
+                            fontSize = 9.sp,
+                        )
                     } else {
                         Text(
                             "The full key is not available here. Copy it from Secret Manager, or create a new key when needed.",

@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 
 private const val PUBLISH_SCOPE = "publish"
 private const val API_KEY_SECRET_WEBSITE = "boss_plugin_store_api_key"
+private const val SECRET_VAULT_PERMISSION = "secret.read"
 private const val CLIPBOARD_STATUS_MS = 4_000L
 private const val CLIPBOARD_CLEAR_MS = 45_000L
 
@@ -316,7 +317,7 @@ class ToolCreatorViewModel(
     /** `secret.read` is the platform's vault-access gate and covers the vault CRUD provider. */
     private fun canAccessSecretVault(): Boolean {
         val auth = context.authDataProvider ?: return false
-        return auth.isAdmin.value || auth.hasPermission("secret.read")
+        return auth.isAdmin.value || auth.hasPermission(SECRET_VAULT_PERMISSION)
     }
 
     private fun rememberPublishKey(result: ApiKeyCreationResult) {
