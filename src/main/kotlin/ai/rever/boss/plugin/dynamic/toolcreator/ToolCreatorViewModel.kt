@@ -60,6 +60,7 @@ class ToolCreatorViewModel(
     private val storedPublishKey = AtomicReference<String?>(null)
     private val copiedClipboardKey = AtomicReference<String?>(null)
     private val clipboardCopyGeneration = AtomicLong(0)
+    private val publishKeyRefreshInFlight = AtomicBoolean(false)
     private val disposed = AtomicBoolean(false)
 
     data class FormState(
@@ -148,10 +149,10 @@ class ToolCreatorViewModel(
             _publishApiKey.value = PublishApiKeyState(permissionChecked = true)
             return
         }
-        if (_publishApiKey.value.isChecking || _publishApiKey.value.isCreating) return
+        if (_publishApiKey.value.isCreating || !publishKeyRefreshInFlight.compareAndSet(false, true)) return
 
         _publishApiKey.update { it.copy(isChecking = true, error = null) }
-        panelScope.launch(Dispatchers.IO) {
+        val refreshJob = panelScope.launch(Dispatchers.IO) {
             try {
                 val canManage = provider.canManageApiKeys()
                 if (!canManage) {
@@ -200,6 +201,7 @@ class ToolCreatorViewModel(
                 )
             }
         }
+        refreshJob.invokeOnCompletion { publishKeyRefreshInFlight.set(false) }
     }
 
     /**
