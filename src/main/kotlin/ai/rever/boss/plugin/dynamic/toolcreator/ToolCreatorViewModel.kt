@@ -52,11 +52,12 @@ class ToolCreatorViewModel(
         java.util.concurrent.atomic.AtomicBoolean(false),
 ) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val panelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val generator = ScaffoldGenerator()
     private val jobIds = AtomicLong(0)
     private val pendingPublishKey = AtomicReference<String?>(null)
     private val storedPublishKey = AtomicReference<String?>(null)
+    private val copiedClipboardKey = AtomicReference<String?>(null)
     private val clipboardCopyGeneration = AtomicLong(0)
 
     data class FormState(
@@ -148,7 +149,7 @@ class ToolCreatorViewModel(
         if (_publishApiKey.value.isChecking || _publishApiKey.value.isCreating) return
 
         _publishApiKey.update { it.copy(isChecking = true, error = null) }
-        scope.launch(Dispatchers.IO) {
+        panelScope.launch(Dispatchers.IO) {
             try {
                 val canManage = provider.canManageApiKeys()
                 if (!canManage) {
@@ -204,7 +205,7 @@ class ToolCreatorViewModel(
         if (!state.permissionChecked || !state.canManageApiKeys || state.isCreating) return
 
         _publishApiKey.update { it.copy(isCreating = true, error = null) }
-        scope.launch(Dispatchers.IO) {
+        context.pluginScope.launch(Dispatchers.IO) {
             try {
                 val result = provider.createApiKey(
                     name = "tool-creator: publishing",
@@ -259,16 +260,20 @@ class ToolCreatorViewModel(
         }
 
         val generation = clipboardCopyGeneration.incrementAndGet()
+        copiedClipboardKey.set(key)
         _publishApiKey.update { it.copy(justCopied = true, copyError = null) }
-        scope.launch(Dispatchers.Main) {
+        // The host ClipboardProvider guards its AWT access and is safe off the EDT;
+        // staying on Default avoids requiring a kotlinx-coroutines-swing Main dispatcher.
+        panelScope.launch {
             delay(CLIPBOARD_STATUS_MS)
             if (clipboardCopyGeneration.get() == generation) {
                 _publishApiKey.update { it.copy(justCopied = false) }
             }
             delay(CLIPBOARD_CLEAR_MS - CLIPBOARD_STATUS_MS)
             val stillCopied = runCatching { clipboard.readText() == key }.getOrDefault(false)
-            if (clipboardCopyGeneration.get() == generation && stillCopied) {
-                runCatching { clipboard.setText("") }
+            if (clipboardCopyGeneration.get() == generation) {
+                if (stillCopied) runCatching { clipboard.setText("") }
+                copiedClipboardKey.compareAndSet(key, null)
             }
         }
     }
@@ -277,7 +282,7 @@ class ToolCreatorViewModel(
 
     /** API-key listings contain only prefixes, so match the key to Secret Manager's saved value. */
     private suspend fun findStoredPublishKey(activeKeys: List<ApiKeyInfo>): StoredPublishKey? {
-        if (activeKeys.isEmpty() || !canReadStoredPublishKeys()) return null
+        if (activeKeys.isEmpty() || !canAccessSecretVault()) return null
         val provider = context.secretDataProvider ?: return null
 
         for (keyInfo in activeKeys) {
@@ -302,7 +307,8 @@ class ToolCreatorViewModel(
         return null
     }
 
-    private fun canReadStoredPublishKeys(): Boolean {
+    /** `secret.read` is the platform's vault-access gate and covers the vault CRUD provider. */
+    private fun canAccessSecretVault(): Boolean {
         val auth = context.authDataProvider ?: return false
         return auth.isAdmin.value || auth.hasPermission("secret.read")
     }
@@ -326,7 +332,7 @@ class ToolCreatorViewModel(
 
     /** Persist the one-time value exactly as Secret Manager does, when permitted. */
     private suspend fun storePublishKeySecret(result: ApiKeyCreationResult): Boolean {
-        if (!canReadStoredPublishKeys()) return false
+        if (!canAccessSecretVault()) return false
         val provider = context.secretDataProvider ?: return false
         if (findStoredPublishKey(listOf(result.keyInfo))?.value == result.apiKey) return true
         return try {
@@ -348,7 +354,7 @@ class ToolCreatorViewModel(
     }
 
     private fun refreshEnvStatus() {
-        scope.launch(Dispatchers.IO) {
+        panelScope.launch(Dispatchers.IO) {
             val missing = CliAgent.entries.filterNot { it.isInstalled() }.toSet()
             val gitOk = canRun("git", "--version")
             val ghOk = canRun("gh", "--version")
@@ -427,7 +433,7 @@ class ToolCreatorViewModel(
             appendJobLog(jobId, "Note: ${spec.agent.binary} not found on PATH — the terminal will report it if missing")
         }
 
-        scope.launch(Dispatchers.IO) {
+        context.pluginScope.launch(Dispatchers.IO) {
             try {
                 val publishKey = if (spec.createGitHubRepo) mintPublishKey(spec) else null
                 val dir = generator.scaffold(spec, publishKey) { appendJobLog(jobId, it) }
@@ -503,9 +509,18 @@ class ToolCreatorViewModel(
         _jobs.update { list -> list.map { if (it.id == jobId) transform(it) else it } }
 
     fun dispose() {
+        clipboardCopyGeneration.incrementAndGet()
+        clearCopiedClipboard()
         pendingPublishKey.set(null)
         storedPublishKey.set(null)
-        scope.cancel()
+        panelScope.cancel()
+    }
+
+    private fun clearCopiedClipboard() {
+        val key = copiedClipboardKey.getAndSet(null) ?: return
+        val clipboard = context.clipboardProvider ?: return
+        val stillCopied = runCatching { clipboard.readText() == key }.getOrDefault(false)
+        if (stillCopied) runCatching { clipboard.setText("") }
     }
 
     companion object {
