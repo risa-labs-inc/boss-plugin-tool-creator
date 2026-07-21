@@ -53,6 +53,7 @@ import compose.icons.feathericons.AlertTriangle
 import compose.icons.feathericons.Check
 import compose.icons.feathericons.ChevronDown
 import compose.icons.feathericons.ChevronRight
+import compose.icons.feathericons.Copy
 import compose.icons.feathericons.Folder
 import compose.icons.feathericons.Key
 import compose.icons.feathericons.RefreshCw
@@ -96,11 +97,12 @@ fun ToolCreatorContent(viewModel: ToolCreatorViewModel) {
                     color = BossThemeColors.TextSecondary,
                     fontSize = 12.sp,
                 )
-                if (publishApiKey.shouldShowSetup) {
+                if (publishApiKey.shouldShowSection) {
                     Spacer(Modifier.height(12.dp))
-                    PublishApiKeySetup(
+                    PublishApiKeySection(
                         state = publishApiKey,
                         onCreate = viewModel::createPublishApiKey,
+                        onCopy = viewModel::copyPublishApiKey,
                         onRetry = viewModel::refreshPublishApiKeyStatus,
                     )
                 }
@@ -231,10 +233,11 @@ private fun CreateToolForm(viewModel: ToolCreatorViewModel, dialogWindow: java.a
             color = BossThemeColors.SurfaceColor,
         ) {
             Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
-                if (publishApiKey.shouldShowSetup) {
-                    PublishApiKeySetup(
+                if (publishApiKey.shouldShowSection) {
+                    PublishApiKeySection(
                         state = publishApiKey,
                         onCreate = viewModel::createPublishApiKey,
+                        onCopy = viewModel::copyPublishApiKey,
                         onRetry = viewModel::refreshPublishApiKeyStatus,
                     )
                     Spacer(Modifier.height(12.dp))
@@ -429,11 +432,121 @@ private fun CreateToolForm(viewModel: ToolCreatorViewModel, dialogWindow: java.a
     }
 }
 
-private val ToolCreatorViewModel.PublishApiKeyState.shouldShowSetup: Boolean
-    get() = permissionChecked && canManageApiKeys && (hasPublishApiKey == false || error != null)
+private val ToolCreatorViewModel.PublishApiKeyState.shouldShowSection: Boolean
+    get() = permissionChecked && canManageApiKeys && (hasPublishApiKey != null || error != null)
 
 @Composable
-private fun PublishApiKeySetup(
+private fun PublishApiKeySection(
+    state: ToolCreatorViewModel.PublishApiKeyState,
+    onCreate: () -> Unit,
+    onCopy: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    if (state.hasPublishApiKey == true) {
+        ExistingPublishApiKey(state, onCopy)
+    } else {
+        MissingPublishApiKey(state, onCreate, onRetry)
+    }
+}
+
+@Composable
+private fun ExistingPublishApiKey(
+    state: ToolCreatorViewModel.PublishApiKeyState,
+    onCopy: () -> Unit,
+) {
+    var expanded by remember(state.keyPrefix) { mutableStateOf(false) }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = BossThemeColors.SuccessColor.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, BossThemeColors.SuccessColor.copy(alpha = 0.4f)),
+    ) {
+        Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(12.dp),
+            ) {
+                Icon(
+                    FeatherIcons.Key,
+                    contentDescription = null,
+                    tint = BossThemeColors.SuccessColor,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Publishing API key",
+                        color = BossThemeColors.TextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        state.keyName ?: "Publish key configured",
+                        color = BossThemeColors.TextMuted,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text("Configured", color = BossThemeColors.SuccessColor, fontSize = 10.sp)
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    if (expanded) FeatherIcons.ChevronDown else FeatherIcons.ChevronRight,
+                    contentDescription = if (expanded) "Hide API key actions" else "Show API key actions",
+                    tint = BossThemeColors.TextSecondary,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+
+            if (expanded) {
+                Divider(color = BossThemeColors.BorderColor)
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        state.keyPrefix?.let { "$it…" } ?: "Publish-scoped key",
+                        color = BossThemeColors.TextSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (state.canCopy) {
+                        Button(
+                            onClick = onCopy,
+                            colors = ButtonDefaults.buttonColors(backgroundColor = BossThemeColors.SuccessColor),
+                        ) {
+                            Icon(
+                                FeatherIcons.Copy,
+                                contentDescription = null,
+                                tint = BossThemeColors.TextPrimary,
+                                modifier = Modifier.size(13.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (state.justCopied) "Copied — clears in 45s" else "Copy API key",
+                                color = BossThemeColors.TextPrimary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    } else {
+                        Text(
+                            "The full key is not available here. Copy it from Secret Manager, or create a new key when needed.",
+                            color = BossThemeColors.TextMuted,
+                            fontSize = 10.sp,
+                        )
+                    }
+                    state.copyError?.let { error ->
+                        Spacer(Modifier.height(6.dp))
+                        Text(error, color = BossThemeColors.ErrorColor, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MissingPublishApiKey(
     state: ToolCreatorViewModel.PublishApiKeyState,
     onCreate: () -> Unit,
     onRetry: () -> Unit,
