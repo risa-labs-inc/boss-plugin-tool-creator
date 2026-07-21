@@ -14,6 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +26,25 @@ private const val PUBLISH_SCOPE = "publish"
 private const val API_KEY_SECRET_WEBSITE = "boss_plugin_store_api_key"
 private const val CLIPBOARD_STATUS_MS = 4_000L
 private const val CLIPBOARD_CLEAR_MS = 45_000L
+
+/** The host converts API timestamps to epoch milliseconds before exposing [ApiKeyInfo]. */
+private fun ApiKeyInfo.isActivePublishKey(nowEpochMillis: Long): Boolean =
+    !isRevoked && PUBLISH_SCOPE in scopes && (expiresAt?.let { it > nowEpochMillis } != false)
+
+private fun userFacingApiKeyError(error: Throwable, fallback: String): String {
+    val detail = error.message.orEmpty().lowercase()
+    return when {
+        "already exists" in detail ->
+            "A Tool Creator publish key with this name already exists. Manage it in Secret Manager, then retry."
+        "permission" in detail || "forbidden" in detail || "403" in detail ->
+            "You do not have permission to manage Plugin Store API keys."
+        "unauthorized" in detail || "401" in detail ->
+            "Sign in again to manage Plugin Store API keys."
+        "timeout" in detail || "network" in detail || "connect" in detail ->
+            "$fallback Check your connection and try again."
+        else -> fallback
+    }
+}
 
 class ToolCreatorViewModel(
     private val context: PluginContext,
@@ -144,17 +164,13 @@ class ToolCreatorViewModel(
                     _publishApiKey.value = PublishApiKeyState(
                         permissionChecked = true,
                         canManageApiKeys = true,
-                        error = error.message ?: "Failed to check API keys",
+                        error = userFacingApiKeyError(error, "Could not check API keys."),
                     )
                     return@launch
                 }
                 val now = System.currentTimeMillis()
                 val activeKeys = keys
-                    .filter { key ->
-                        !key.isRevoked &&
-                            PUBLISH_SCOPE in key.scopes &&
-                            (key.expiresAt?.let { it > now } != false)
-                    }
+                    .filter { it.isActivePublishKey(now) }
                     .sortedByDescending { it.createdAt }
                 val storedKey = findStoredPublishKey(activeKeys)
                 val displayedKey = storedKey?.keyInfo ?: activeKeys.firstOrNull()
@@ -172,7 +188,7 @@ class ToolCreatorViewModel(
             } catch (e: Exception) {
                 _publishApiKey.value = PublishApiKeyState(
                     permissionChecked = true,
-                    error = e.message ?: "Failed to check API-key permission",
+                    error = userFacingApiKeyError(e, "Could not check API-key permission."),
                 )
             }
         }
@@ -197,7 +213,7 @@ class ToolCreatorViewModel(
                     _publishApiKey.update {
                         it.copy(
                             isCreating = false,
-                            error = error.message ?: "Failed to create publish API key",
+                            error = userFacingApiKeyError(error, "Could not create the publish API key."),
                         )
                     }
                     return@launch
@@ -220,7 +236,7 @@ class ToolCreatorViewModel(
                 _publishApiKey.update {
                     it.copy(
                         isCreating = false,
-                        error = e.message ?: "Failed to create publish API key",
+                        error = userFacingApiKeyError(e, "Could not create the publish API key."),
                     )
                 }
             }
@@ -244,7 +260,7 @@ class ToolCreatorViewModel(
 
         val generation = clipboardCopyGeneration.incrementAndGet()
         _publishApiKey.update { it.copy(justCopied = true, copyError = null) }
-        scope.launch {
+        scope.launch(Dispatchers.Main) {
             delay(CLIPBOARD_STATUS_MS)
             if (clipboardCopyGeneration.get() == generation) {
                 _publishApiKey.update { it.copy(justCopied = false) }
@@ -263,22 +279,27 @@ class ToolCreatorViewModel(
     private suspend fun findStoredPublishKey(activeKeys: List<ApiKeyInfo>): StoredPublishKey? {
         if (activeKeys.isEmpty() || !canReadStoredPublishKeys()) return null
         val provider = context.secretDataProvider ?: return null
-        val secrets = try {
-            provider.searchSecrets(API_KEY_SECRET_WEBSITE, limit = 100)
-                .getOrNull()
-                ?.data
-                .orEmpty()
-                .filter { it.website == API_KEY_SECRET_WEBSITE }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            emptyList()
-        }
 
-        return activeKeys.firstNotNullOfOrNull { keyInfo ->
-            secrets.firstOrNull { it.password.startsWith(keyInfo.keyPrefix) }
-                ?.let { StoredPublishKey(keyInfo, it.password) }
+        for (keyInfo in activeKeys) {
+            if (keyInfo.keyPrefix.isBlank()) continue
+            val secrets = try {
+                provider.searchSecrets(keyInfo.name, limit = 10)
+                    .getOrNull()
+                    ?.data
+                    .orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val match = secrets.firstOrNull {
+                it.website == API_KEY_SECRET_WEBSITE &&
+                    it.username == keyInfo.name &&
+                    it.password.startsWith(keyInfo.keyPrefix)
+            }
+            if (match != null) return StoredPublishKey(keyInfo, match.password)
         }
+        return null
     }
 
     private fun canReadStoredPublishKeys(): Boolean {
@@ -307,7 +328,9 @@ class ToolCreatorViewModel(
     private suspend fun storePublishKeySecret(result: ApiKeyCreationResult): Boolean {
         if (!canReadStoredPublishKeys()) return false
         val provider = context.secretDataProvider ?: return false
+        if (findStoredPublishKey(listOf(result.keyInfo))?.value == result.apiKey) return true
         return try {
+            // One secret per unique repo key is intentional: each credential remains independently revocable.
             provider.createSecret(
                 CreateSecretRequestData(
                     website = API_KEY_SECRET_WEBSITE,
@@ -480,7 +503,9 @@ class ToolCreatorViewModel(
         _jobs.update { list -> list.map { if (it.id == jobId) transform(it) else it } }
 
     fun dispose() {
-        // Scope uses SupervisorJob; cancel would go here if we held long-lived work.
+        pendingPublishKey.set(null)
+        storedPublishKey.set(null)
+        scope.cancel()
     }
 
     companion object {

@@ -433,7 +433,7 @@ private fun CreateToolForm(viewModel: ToolCreatorViewModel, dialogWindow: java.a
 }
 
 private val ToolCreatorViewModel.PublishApiKeyState.shouldShowSection: Boolean
-    get() = permissionChecked && canManageApiKeys && (hasPublishApiKey != null || error != null)
+    get() = permissionChecked && (error != null || canManageApiKeys && hasPublishApiKey != null)
 
 @Composable
 private fun PublishApiKeySection(
@@ -601,7 +601,8 @@ private fun MissingPublishApiKey(
                     when {
                         state.isCreating -> "Creating…"
                         state.isChecking -> "Checking…"
-                        state.error != null -> "Retry"
+                        state.error != null && state.hasPublishApiKey == false -> "Try creating again"
+                        state.error != null -> "Retry check"
                         else -> "Create publish API key"
                     },
                     color = BossThemeColors.TextPrimary,
