@@ -1,29 +1,67 @@
 package ai.rever.boss.plugin.dynamic.toolcreator
 
+import ai.rever.boss.plugin.api.ApiKeyCreationResult
+import ai.rever.boss.plugin.api.ApiKeyInfo
+import ai.rever.boss.plugin.api.CreateSecretRequestData
 import ai.rever.boss.plugin.api.NotificationType
 import ai.rever.boss.plugin.api.PluginContext
 import ai.rever.boss.plugin.tab.terminal.TerminalTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabType
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private const val PUBLISH_SCOPE = "publish"
+private const val API_KEY_SECRET_WEBSITE = "boss_plugin_store_api_key"
+private const val SECRET_VAULT_PERMISSION = "secret.read"
+private const val CLIPBOARD_STATUS_MS = 4_000L
+private const val CLIPBOARD_CLEAR_MS = 45_000L
+
+/** The host converts API timestamps to epoch milliseconds before exposing [ApiKeyInfo]. */
+private fun ApiKeyInfo.isActivePublishKey(nowEpochMillis: Long): Boolean =
+    !isRevoked && PUBLISH_SCOPE in scopes && (expiresAt?.let { it > nowEpochMillis } != false)
+
+private fun userFacingApiKeyError(error: Throwable, fallback: String): String {
+    val detail = error.message.orEmpty().lowercase()
+    return when {
+        "already exists" in detail ->
+            "A Tool Creator publish key with this name already exists. Manage it in Secret Manager, then retry."
+        "permission" in detail || "forbidden" in detail || "403" in detail ->
+            "You do not have permission to manage Plugin Store API keys."
+        "unauthorized" in detail || "401" in detail ->
+            "Sign in again to manage Plugin Store API keys."
+        "timeout" in detail || "network" in detail || "connect" in detail ->
+            "$fallback Check your connection and try again."
+        else -> fallback
+    }
+}
+
 class ToolCreatorViewModel(
     private val context: PluginContext,
-    private val pendingNewTool: java.util.concurrent.atomic.AtomicBoolean =
-        java.util.concurrent.atomic.AtomicBoolean(false),
+    private val pendingNewTool: AtomicBoolean = AtomicBoolean(false),
 ) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val panelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val generator = ScaffoldGenerator()
     private val jobIds = AtomicLong(0)
+    private val pendingPublishKey = AtomicReference<String?>(null)
+    private val storedPublishKey = AtomicReference<String?>(null)
+    private val copiedClipboardKey = AtomicReference<String?>(null)
+    private val clipboardCopyGeneration = AtomicLong(0)
+    private val publishKeyRefreshInFlight = AtomicBoolean(false)
+    private val disposed = AtomicBoolean(false)
 
     data class FormState(
         val toolName: String = "",
@@ -46,6 +84,20 @@ class ToolCreatorViewModel(
         val ghInstalled: Boolean = true,
         val ghAuthenticated: Boolean = true,
         val checked: Boolean = false,
+    )
+
+    data class PublishApiKeyState(
+        val permissionChecked: Boolean = false,
+        val canManageApiKeys: Boolean = false,
+        val hasPublishApiKey: Boolean? = null,
+        val isChecking: Boolean = false,
+        val isCreating: Boolean = false,
+        val keyName: String? = null,
+        val keyPrefix: String? = null,
+        val canCopy: Boolean = false,
+        val justCopied: Boolean = false,
+        val copyError: String? = null,
+        val error: String? = null,
     )
 
     enum class JobStatus { RUNNING, SUCCESS, FAILED }
@@ -72,6 +124,9 @@ class ToolCreatorViewModel(
     private val _env = MutableStateFlow(EnvStatus())
     val env: StateFlow<EnvStatus> = _env.asStateFlow()
 
+    private val _publishApiKey = MutableStateFlow(PublishApiKeyState())
+    val publishApiKey: StateFlow<PublishApiKeyState> = _publishApiKey.asStateFlow()
+
     // ------------------------------------------------------------ dialog API
 
     fun openDialog() {
@@ -83,8 +138,233 @@ class ToolCreatorViewModel(
     /** True (once) if another plugin requested the New Tool dialog since the last check. */
     fun consumePendingOpenRequest(): Boolean = pendingNewTool.getAndSet(false)
 
+    /**
+     * Check publishing-key readiness without exposing the setup UI to users who
+     * do not have API-key management permission. This mirrors Secret Manager's
+     * runtime permission gate in addition to the plugin manifest's install gate.
+     */
+    fun refreshPublishApiKeyStatus() {
+        val provider = context.pluginStoreApiKeyProvider
+        if (provider == null) {
+            _publishApiKey.value = PublishApiKeyState(permissionChecked = true)
+            return
+        }
+        if (_publishApiKey.value.isCreating || !publishKeyRefreshInFlight.compareAndSet(false, true)) return
+
+        _publishApiKey.update { it.copy(isChecking = true, error = null) }
+        val refreshJob = panelScope.launch(Dispatchers.IO) {
+            try {
+                val canManage = provider.canManageApiKeys()
+                if (!canManage) {
+                    storedPublishKey.set(null)
+                    _publishApiKey.value = PublishApiKeyState(
+                        permissionChecked = true,
+                        canManageApiKeys = false,
+                    )
+                    return@launch
+                }
+
+                val keys = provider.listApiKeys().getOrElse { error ->
+                    _publishApiKey.value = PublishApiKeyState(
+                        permissionChecked = true,
+                        canManageApiKeys = true,
+                        error = userFacingApiKeyError(error, "Could not check API keys."),
+                    )
+                    return@launch
+                }
+                val now = System.currentTimeMillis()
+                val activeKeys = keys
+                    .filter { it.isActivePublishKey(now) }
+                    .sortedByDescending { it.createdAt }
+                val storedKey = findStoredPublishKey(activeKeys)
+                val displayedKey = storedKey?.keyInfo ?: activeKeys.firstOrNull()
+                storedPublishKey.set(storedKey?.value)
+                _publishApiKey.update { current ->
+                    val sameKey = current.keyPrefix == displayedKey?.keyPrefix
+                    PublishApiKeyState(
+                        permissionChecked = true,
+                        canManageApiKeys = true,
+                        hasPublishApiKey = displayedKey != null,
+                        keyName = displayedKey?.name,
+                        keyPrefix = displayedKey?.keyPrefix,
+                        canCopy = storedKey != null && context.clipboardProvider != null,
+                        justCopied = sameKey && current.justCopied,
+                        copyError = current.copyError.takeIf { sameKey },
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _publishApiKey.value = PublishApiKeyState(
+                    permissionChecked = true,
+                    error = userFacingApiKeyError(e, "Could not check API-key permission."),
+                )
+            }
+        }
+        refreshJob.invokeOnCompletion { publishKeyRefreshInFlight.set(false) }
+    }
+
+    /**
+     * Create the missing publish-scoped key. Its one-time value stays in memory
+     * until the next GitHub-backed scaffold installs it as the repository secret.
+     */
+    fun createPublishApiKey() {
+        val provider = context.pluginStoreApiKeyProvider ?: return
+        val state = _publishApiKey.value
+        if (!state.permissionChecked || !state.canManageApiKeys || state.isCreating) return
+
+        _publishApiKey.update { it.copy(isCreating = true, error = null) }
+        context.pluginScope.launch(Dispatchers.IO) {
+            try {
+                val result = provider.createApiKey(
+                    name = "tool-creator: publishing",
+                    scopes = listOf(PUBLISH_SCOPE),
+                ).getOrElse { error ->
+                    _publishApiKey.update {
+                        it.copy(
+                            isCreating = false,
+                            error = userFacingApiKeyError(error, "Could not create the publish API key."),
+                        )
+                    }
+                    return@launch
+                }
+                if (!disposed.get()) pendingPublishKey.set(result.apiKey)
+                rememberPublishKey(result)
+                val stored = storePublishKeySecret(result)
+                context.notificationProvider?.showToast(
+                    message = if (stored) {
+                        "Publish API key created, saved, and ready for the next GitHub repository"
+                    } else {
+                        "Publish API key created and ready for this session"
+                    },
+                    type = if (stored) NotificationType.SUCCESS else NotificationType.WARNING,
+                    title = "Tool Creator",
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _publishApiKey.update {
+                    it.copy(
+                        isCreating = false,
+                        error = userFacingApiKeyError(e, "Could not create the publish API key."),
+                    )
+                }
+            }
+        }
+    }
+
+    /** Copy the stored full key without ever exposing it in Compose state. */
+    fun copyPublishApiKey() {
+        val key = storedPublishKey.get()
+        val clipboard = context.clipboardProvider
+        if (key == null || clipboard == null) {
+            _publishApiKey.update { it.copy(copyError = "Full key is not available to copy") }
+            return
+        }
+
+        val copied = runCatching { clipboard.setText(key) }.getOrDefault(false)
+        if (!copied) {
+            _publishApiKey.update { it.copy(copyError = "Could not copy the API key") }
+            return
+        }
+
+        val generation = clipboardCopyGeneration.incrementAndGet()
+        copiedClipboardKey.set(key)
+        _publishApiKey.update { it.copy(justCopied = true, copyError = null) }
+        // The host ClipboardProvider guards its AWT access and is safe off the EDT;
+        // staying on Default avoids requiring a kotlinx-coroutines-swing Main dispatcher.
+        panelScope.launch {
+            delay(CLIPBOARD_STATUS_MS)
+            if (clipboardCopyGeneration.get() == generation) {
+                _publishApiKey.update { it.copy(justCopied = false) }
+            }
+            delay(CLIPBOARD_CLEAR_MS - CLIPBOARD_STATUS_MS)
+            val stillCopied = runCatching { clipboard.readText() == key }.getOrDefault(false)
+            if (clipboardCopyGeneration.get() == generation) {
+                if (stillCopied) runCatching { clipboard.setText("") }
+                copiedClipboardKey.compareAndSet(key, null)
+            }
+        }
+    }
+
+    private data class StoredPublishKey(val keyInfo: ApiKeyInfo, val value: String)
+
+    /** API-key listings contain only prefixes, so match the key to Secret Manager's saved value. */
+    private suspend fun findStoredPublishKey(activeKeys: List<ApiKeyInfo>): StoredPublishKey? {
+        if (activeKeys.isEmpty() || !canAccessSecretVault()) return null
+        val provider = context.secretDataProvider ?: return null
+
+        for (keyInfo in activeKeys) {
+            if (keyInfo.keyPrefix.isBlank()) continue
+            val secrets = try {
+                provider.searchSecrets(keyInfo.name, limit = 10)
+                    .getOrNull()
+                    ?.data
+                    .orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val match = secrets.firstOrNull {
+                it.website == API_KEY_SECRET_WEBSITE &&
+                    it.username == keyInfo.name &&
+                    it.password.startsWith(keyInfo.keyPrefix)
+            }
+            if (match != null) return StoredPublishKey(keyInfo, match.password)
+        }
+        return null
+    }
+
+    /** `secret.read` is the platform's vault-access gate and covers the vault CRUD provider. */
+    private fun canAccessSecretVault(): Boolean {
+        val auth = context.authDataProvider ?: return false
+        return auth.isAdmin.value || auth.hasPermission(SECRET_VAULT_PERMISSION)
+    }
+
+    private fun rememberPublishKey(result: ApiKeyCreationResult) {
+        if (disposed.get()) return
+        storedPublishKey.set(result.apiKey)
+        _publishApiKey.update {
+            it.copy(
+                permissionChecked = true,
+                canManageApiKeys = true,
+                hasPublishApiKey = true,
+                isCreating = false,
+                keyName = result.keyInfo.name,
+                keyPrefix = result.keyInfo.keyPrefix,
+                canCopy = context.clipboardProvider != null,
+                copyError = null,
+                error = null,
+            )
+        }
+    }
+
+    /** Persist the one-time value exactly as Secret Manager does, when permitted. */
+    private suspend fun storePublishKeySecret(result: ApiKeyCreationResult): Boolean {
+        if (!canAccessSecretVault()) return false
+        val provider = context.secretDataProvider ?: return false
+        if (findStoredPublishKey(listOf(result.keyInfo))?.value == result.apiKey) return true
+        return try {
+            // One secret per unique repo key is intentional: each credential remains independently revocable.
+            provider.createSecret(
+                CreateSecretRequestData(
+                    website = API_KEY_SECRET_WEBSITE,
+                    username = result.keyInfo.name,
+                    password = result.apiKey,
+                    notes = "Plugin Store API Key\nScopes: ${result.keyInfo.scopes.joinToString(", ")}",
+                    tags = listOf("api_key"),
+                )
+            ).isSuccess
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun refreshEnvStatus() {
-        scope.launch(Dispatchers.IO) {
+        panelScope.launch(Dispatchers.IO) {
             val missing = CliAgent.entries.filterNot { it.isInstalled() }.toSet()
             val gitOk = canRun("git", "--version")
             val ghOk = canRun("gh", "--version")
@@ -163,7 +443,7 @@ class ToolCreatorViewModel(
             appendJobLog(jobId, "Note: ${spec.agent.binary} not found on PATH — the terminal will report it if missing")
         }
 
-        scope.launch(Dispatchers.IO) {
+        context.pluginScope.launch(Dispatchers.IO) {
             try {
                 val publishKey = if (spec.createGitHubRepo) mintPublishKey(spec) else null
                 val dir = generator.scaffold(spec, publishKey) { appendJobLog(jobId, it) }
@@ -219,13 +499,17 @@ class ToolCreatorViewModel(
      * key-management rights.
      */
     private suspend fun mintPublishKey(spec: ScaffoldSpec): String? {
+        pendingPublishKey.getAndSet(null)?.let { return it }
         val provider = context.pluginStoreApiKeyProvider ?: return null
-        return runCatching {
+        val result = runCatching {
             provider.createApiKey(
                 name = "tool-creator: ${spec.repoName}",
-                scopes = listOf("publish"),
-            ).getOrNull()?.apiKey
-        }.getOrNull()
+                scopes = listOf(PUBLISH_SCOPE),
+            ).getOrNull()
+        }.getOrNull() ?: return null
+        rememberPublishKey(result)
+        storePublishKeySecret(result)
+        return result.apiKey
     }
 
     private fun appendJobLog(jobId: Long, line: String) =
@@ -235,7 +519,19 @@ class ToolCreatorViewModel(
         _jobs.update { list -> list.map { if (it.id == jobId) transform(it) else it } }
 
     fun dispose() {
-        // Scope uses SupervisorJob; cancel would go here if we held long-lived work.
+        if (!disposed.compareAndSet(false, true)) return
+        clipboardCopyGeneration.incrementAndGet()
+        clearCopiedClipboard()
+        pendingPublishKey.set(null)
+        storedPublishKey.set(null)
+        panelScope.cancel()
+    }
+
+    private fun clearCopiedClipboard() {
+        val key = copiedClipboardKey.getAndSet(null) ?: return
+        val clipboard = context.clipboardProvider ?: return
+        val stillCopied = runCatching { clipboard.readText() == key }.getOrDefault(false)
+        if (stillCopied) runCatching { clipboard.setText("") }
     }
 
     companion object {

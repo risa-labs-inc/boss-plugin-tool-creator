@@ -5,6 +5,7 @@ import ai.rever.boss.plugin.api.PanelInfo
 import ai.rever.boss.plugin.api.PluginContext
 import androidx.compose.runtime.Composable
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.essenty.lifecycle.doOnDestroy
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ToolCreatorComponent(
@@ -15,6 +16,10 @@ class ToolCreatorComponent(
 ) : PanelComponentWithUI, ComponentContext by ctx {
 
     private val viewModel = ToolCreatorViewModel(pluginContext, pendingNewTool)
+
+    init {
+        lifecycle.doOnDestroy { viewModel.dispose() }
+    }
 
     @Composable
     override fun Content() {
