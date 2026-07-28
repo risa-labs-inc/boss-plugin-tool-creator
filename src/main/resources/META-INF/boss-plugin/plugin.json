@@ -14,5 +14,13 @@
   "panel": {
     "position": "left_bottom",
     "priority": 30
-  }
+  },
+  "sandbox": {
+    "maxThreads": 4,
+    "maxRestartAttempts": 3,
+    "heartbeatIntervalMs": 5000
+  },
+  "isolationMode": "out-of-process",
+  "fallback": "in-process",
+  "stateHolderClass": "ai.rever.boss.plugin.runtime.stateholders.ToolCreatorStateHolder"
 }
