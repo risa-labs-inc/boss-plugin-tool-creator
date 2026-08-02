@@ -3,8 +3,9 @@
 Sidebar plugin that scaffolds new BOSS plugins and hands them straight to an AI
 coding agent.
 
-> **Admin-gated**: installing this plugin requires the `plugins.admin.publish` and
-> `api_key.create` permissions (held by the `boss_admin` role; `admin` bypasses).
+> **Permission-gated**: installing this plugin requires the `plugins.create` and
+> `api_key.create` permissions (held by the `boss_plugin_admin` role and inherited
+> by `boss_admin`; `admin` bypasses).
 
 Clicking the Tool Creator icon opens a dialog asking for:
 
@@ -14,8 +15,10 @@ Clicking the Tool Creator icon opens a dialog asking for:
 
 "Start building" then:
 
-1. Scaffolds a complete plugin repo (build files, gradle wrapper, manifest with
-   the requested permissions, skeleton panel UI, release CI workflow).
+1. Scaffolds a complete plugin repo (build files, gradle wrapper, manifest,
+   skeleton panel UI, release CI workflow). The permissions you picked shape the
+   skill and README, not the manifest's `requiredPermissions` — that field is an
+   RBAC install gate and only accepts permissions in the RBAC catalog.
 2. Writes the `tool-creator` skill in every CLI's native format, pre-filled with
    the tool's name, description, permissions, and BOSS plugin conventions —
    including how to expose the tool via MCP.

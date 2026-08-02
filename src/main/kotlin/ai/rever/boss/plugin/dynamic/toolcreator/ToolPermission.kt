@@ -3,8 +3,12 @@ package ai.rever.boss.plugin.dynamic.toolcreator
 /**
  * Permission choices offered in the creation dialog.
  *
- * The selected ids land in the scaffolded plugin.json as `requiredPermissions`
- * and in the generated skill so the AI agent knows the tool's allowed surface.
+ * The selected ids land in the generated skill body and README, so the AI agent
+ * knows the tool's allowed surface. They are deliberately kept **out** of the
+ * scaffolded plugin.json's `requiredPermissions` — the store and host treat that
+ * field as an RBAC install gate, and these ids are not in the RBAC catalog, so
+ * declaring them would trip `validateDeclaredPermissions` at publish. See
+ * `ScaffoldGenerator.tokensFor`, which is authoritative.
  */
 enum class ToolPermission(
     val id: String,

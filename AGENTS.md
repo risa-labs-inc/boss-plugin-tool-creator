@@ -9,11 +9,13 @@ Scaffold new BOSS plugins and start building them with Claude Code, Codex, Gemin
 - **Plugin ID**: `ai.rever.boss.plugin.dynamic.toolcreator`
 - **Main Class**: `ai.rever.boss.plugin.dynamic.toolcreator.ToolCreatorDynamicPlugin`
 - **API Version**: 1.0.51
-- **Install gate**: `requiredPermissions: ["plugins.admin.publish", "api_key.create"]` —
-  held by the `boss_admin` role; the `admin` role bypasses permission checks. Enforced
-  at store download, Toolbox install, and host activation. Do NOT use the legacy
-  `requiresAdmin` flag (it matches only the literal `admin` role and would exclude
-  `boss_admin`).
+- **Install gate**: `requiredPermissions: ["plugins.create", "api_key.create"]` —
+  held by the `boss_plugin_admin` role and inherited by `boss_admin`; the `admin`
+  role bypasses permission checks. Enforced at store download, Toolbox install, and
+  host activation. Do NOT use the legacy `requiresAdmin` flag (it matches only the
+  literal `admin` role and would exclude `boss_plugin_admin`/`boss_admin`).
+  Not `plugins.admin.publish` — that is store-wide moderation, and its RLS policy
+  authorizes updates to any plugin regardless of author.
 
 ## Essential Commands
 
