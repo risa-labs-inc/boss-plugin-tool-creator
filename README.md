@@ -17,10 +17,10 @@ Clicking the Tool Creator icon opens a dialog asking for:
 
 1. Scaffolds a complete plugin repo (build files, gradle wrapper, manifest,
    skeleton panel UI, release CI workflow). The permissions you picked shape the
-   skill and README, not the manifest's `requiredPermissions` — that field is an
+   skill and README, not the manifest's `requiredPermissions` - that field is an
    RBAC install gate and only accepts permissions in the RBAC catalog.
 2. Writes the `tool-creator` skill in every CLI's native format, pre-filled with
-   the tool's name, description, permissions, and BOSS plugin conventions —
+   the tool's name, description, permissions, and BOSS plugin conventions -
    including how to expose the tool via MCP.
 3. Initializes git (optionally creates `risa-labs-inc/boss-plugin-<name>` on
    GitHub with the Plugin Store publish secret installed).

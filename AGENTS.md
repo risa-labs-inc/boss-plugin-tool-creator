@@ -9,12 +9,12 @@ Scaffold new BOSS plugins and start building them with Claude Code, Codex, Gemin
 - **Plugin ID**: `ai.rever.boss.plugin.dynamic.toolcreator`
 - **Main Class**: `ai.rever.boss.plugin.dynamic.toolcreator.ToolCreatorDynamicPlugin`
 - **API Version**: 1.0.51
-- **Install gate**: `requiredPermissions: ["plugins.create", "api_key.create"]` —
+- **Install gate**: `requiredPermissions: ["plugins.create", "api_key.create"]` -
   held by the `boss_plugin_admin` role and inherited by `boss_admin`; the `admin`
   role bypasses permission checks. Enforced at store download, Toolbox install, and
   host activation. Do NOT use the legacy `requiresAdmin` flag (it matches only the
   literal `admin` role and would exclude `boss_plugin_admin`/`boss_admin`).
-  Not `plugins.admin.publish` — that is store-wide moderation, and its RLS policy
+  Not `plugins.admin.publish` - that is store-wide moderation, and its RLS policy
   authorizes updates to any plugin regardless of author.
 
 ## Essential Commands
@@ -47,12 +47,12 @@ permissions, AI CLI picker). "Start building" then:
 
 1. `ScaffoldGenerator` renders `src/main/resources/scaffold/` templates into a
    new repo (build files, gradle wrapper, plugin.json with the chosen
-   `requiredPermissions`, skeleton panel sources, and the CI caller workflows —
+   `requiredPermissions`, skeleton panel sources, and the CI caller workflows -
    release on push to `main` plus Claude Code review on PRs, both delegating to
    shared workflows in `risa-labs-inc/BossConsole-Releases`).
 2. Writes the `tool-creator` skill in all four CLI formats:
    `.claude/skills/tool-creator/SKILL.md`, `.codex/skills/tool-creator/SKILL.md`,
-   `.gemini/commands/tool-creator.toml`, `.opencode/command/tool-creator.md` —
+   `.gemini/commands/tool-creator.toml`, `.opencode/command/tool-creator.md` -
    the shared body lives in `scaffold/skill/skill-body.md.tmpl` and includes MCP
    tool-provider context.
 3. Bundles the newest `boss-plugin-api-*.jar` it finds (sibling checkout,
@@ -60,8 +60,8 @@ permissions, AI CLI picker). "Start building" then:
 4. `git init` + initial commit; optionally `gh repo create
    risa-labs-inc/boss-plugin-<slug> --push`, installs the
    `BOSS_STORE_PLUGIN_PUBLISH_KEY` secret (minted via
-   `pluginStoreApiKeyProvider.createApiKey(scopes=["publish"])`), and — when the
-   scaffold location is the boss_plugins umbrella root — registers the repo as a
+   `pluginStoreApiKeyProvider.createApiKey(scopes=["publish"])`), and - when the
+   scaffold location is the boss_plugins umbrella root - registers the repo as a
    git submodule there (`git submodule add` + local commit, push left to user).
 5. Opens a BossTerm tab via `splitViewOperations.openTab(TerminalTabInfo(...))`
    cd'd into the repo, running the chosen CLI with a kick-off prompt that
@@ -87,13 +87,13 @@ JSON contexts `_JSON` (see `ScaffoldGenerator.tokensFor`).
 
 **`build.gradle.kts` is the single source of truth for version.**
 
-The `processResources` task automatically syncs the version into `plugin.json` at build time. Never manually edit the version in `plugin.json` — only change it in `build.gradle.kts`.
+The `processResources` task automatically syncs the version into `plugin.json` at build time. Never manually edit the version in `plugin.json` - only change it in `build.gradle.kts`.
 
 ## Code Quality
 
 - Use Compose Multiplatform APIs (not Android-specific)
 - All Kotlin files must end with a newline
-- Handle null providers gracefully — show fallback UI, never crash
+- Handle null providers gracefully - show fallback UI, never crash
 
 ## CI/CD
 
