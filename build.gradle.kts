@@ -25,11 +25,19 @@ repositories {
 dependencies {
     if (useLocalDependencies) {
         // Local dev: boss-plugin-api JAR from sibling repo (pinned version)
-        compileOnly(files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.55.jar"))
+        compileOnly(files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.97.jar"))
     } else {
         // CI: downloaded JAR
         compileOnly(files("build/downloaded-deps/boss-plugin-api.jar"))
     }
+
+    testImplementation(kotlin("test"))
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation(files(if (useLocalDependencies) {
+        "$bossPluginApiPath/build/libs/boss-plugin-api-1.0.97.jar"
+    } else {
+        "build/downloaded-deps/boss-plugin-api.jar"
+    }))
 
     implementation(compose.desktop.currentOs)
     implementation(compose.runtime)
@@ -42,6 +50,7 @@ dependencies {
     implementation("com.arkivanov.decompose:decompose:3.3.0")
     implementation("com.arkivanov.essenty:lifecycle:2.5.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
 }
 
 // Thin plugin JAR: compiled classes + manifest only (API and Compose come from the host)

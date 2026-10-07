@@ -10,11 +10,11 @@ coding agent.
 
 **[Create and publish a plugin](https://github.com/risa-labs-inc/BossConsole/wiki/Create-and-Publish-a-Plugin)** covers **Toolbox → Create**, agent handoff, GitHub setup, and your publish key. Automatic repo creation targets `risa-labs-inc`; use the guide's personal-repository path if you do not have access to that organisation.
 
-Clicking the Tool Creator icon opens a dialog asking for:
+Choose **Create a plugin** in Tool Creator (or **Toolbox → Create**) to enter:
 
 - **Plugin name** and **tool description**
 - **Tool permissions** (files, shell, network, browser, secrets, MCP tools)
-- **Which CLI to build with**: Claude Code, Codex, Gemini, or OpenCode
+- **Coding agent**: Fluck Agent inside BOSS, or Claude Code, Codex, Gemini, or OpenCode in a terminal
 
 "Start building" then:
 
@@ -27,8 +27,16 @@ Clicking the Tool Creator icon opens a dialog asking for:
    including how to expose the tool via MCP.
 3. Initializes git (optionally creates `risa-labs-inc/boss-plugin-<name>` on
    GitHub with the Plugin Store publish secret installed).
-4. Opens a BossTerm tab in the new repo running the chosen CLI with the skill
-   already engaged.
+4. Opens a Fluck Agent tab scoped to the new repository, with the tool-creator
+   instructions as its first task, or a BossTerm tab running the chosen CLI.
+   Fluck must be installed and enabled; no Fluck CLI is required. The project
+   cards show setup progress and logs, and reopen the existing agent tab.
+
+The native handoff uses Fluck Agent’s `fluck_launch` tool through the BOSS MCP
+registry. Install or update Fluck Agent and keep that tool enabled in the Toolbox.
+The chosen repository is passed explicitly and confirmed by the launch response.
+Choose the active main panel or a split in the link-style destination dialog.
+Cancelling keeps the scaffold ready without submitting an agent task.
 
 ## Build
 

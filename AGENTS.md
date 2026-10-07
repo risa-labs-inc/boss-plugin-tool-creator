@@ -4,11 +4,11 @@
 
 **Tool Creator** (`ai.rever.boss.plugin.dynamic.toolcreator`) is a dynamic plugin for the BOSS desktop application.
 
-Scaffold new BOSS plugins and start building them with Claude Code, Codex, Gemini, or OpenCode
+Scaffold new BOSS plugins and start building them with Fluck Agent, Claude Code, Codex, Gemini, or OpenCode
 
 - **Plugin ID**: `ai.rever.boss.plugin.dynamic.toolcreator`
 - **Main Class**: `ai.rever.boss.plugin.dynamic.toolcreator.ToolCreatorDynamicPlugin`
-- **API Version**: 1.0.51
+- **API Version**: 1.0.97
 - **Install gate**: `requiredPermissions: ["plugins.create", "api_key.create"]` -
   granted to `user` on hosted BOSS and also held by `boss_plugin_admin`
   (inherited by `boss_admin`);
@@ -46,7 +46,7 @@ build.gradle.kts   → Build config + version (single source of truth)
 ### What this plugin does
 
 The sidebar panel opens a creation dialog (plugin name, tool description,
-permissions, AI CLI picker). "Start building" then:
+capabilities, coding-agent picker). "Start building" then:
 
 1. `ScaffoldGenerator` renders `src/main/resources/scaffold/` templates into a
    new repo (build files, gradle wrapper, plugin.json, skeleton panel sources,
@@ -67,7 +67,12 @@ permissions, AI CLI picker). "Start building" then:
    `pluginStoreApiKeyProvider.createApiKey(scopes=["publish"])`), and - when the
    scaffold location is the boss_plugins umbrella root - registers the repo as a
    git submodule there (`git submodule add` + local commit, push left to user).
-5. Opens a BossTerm tab via `splitViewOperations.openTab(TerminalTabInfo(...))`
+5. Fluck Agent uses its `fluck_launch` MCP tool through `mcpToolRegistry.invoke`,
+   after the user chooses the active panel or a split in the link-style destination dialog,
+   with the repository, selected location, and a skill-reading prompt. Confirm the returned repository
+   and retain its real `tab_id` for reopening; use the exposed registry tool list
+   for availability rather than a CLI binary or the host tab registry.
+   Other agents open a BossTerm tab via `splitViewOperations.openTab(TerminalTabInfo(...))`
    cd'd into the repo, running the chosen CLI with a kick-off prompt that
    engages the skill (`CliAgent.launchCommand()`).
 
