@@ -5,8 +5,8 @@ coding agent.
 
 > **Permission-gated**: installing this plugin requires the `plugins.create` and
 > `api_key.create` permissions. Hosted BOSS grants both to the baseline `user`
-> role for existing and new users; refresh your session after a grant. Other
-> deployments may grant `boss_plugin_admin`; `admin` bypasses the checks.
+> role for existing and new users; sign out and back in after a grant. Both are
+> also held by `boss_plugin_admin` and inherited by `boss_admin`; `admin` bypasses.
 
 **[Create and publish a plugin](https://github.com/risa-labs-inc/BossConsole/wiki/Create-and-Publish-a-Plugin)** covers **Toolbox → Create**, agent handoff, GitHub setup, and your publish key. Automatic repo creation targets `risa-labs-inc`; use the guide's personal-repository path if you do not have access to that organisation.
 
