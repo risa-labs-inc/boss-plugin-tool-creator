@@ -21,9 +21,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val PUBLISH_SCOPE = "publish"
 private const val API_KEY_SECRET_WEBSITE = "boss_plugin_store_api_key"
@@ -509,7 +511,17 @@ class ToolCreatorViewModel(
                     val elsewhere = try {
                         withContext(Dispatchers.Main) {
                             tabs.refreshAllWindowTabs()
-                            tabs.allWindowTabs.value.firstOrNull { it.tabId == id }
+                            val inventory = tabs.allWindowTabs
+                            inventory.value.firstOrNull { it.tabId == id }
+                                ?: if (inventory === tabs.activeTabs) null else {
+                                    // Cross-window inventory can be a stateIn-derived flow whose
+                                    // publication is queued after refresh returns. Give it a
+                                    // bounded chance to expose the live tab before replaying work.
+                                    withTimeoutOrNull(500) {
+                                        inventory.first { entries -> entries.any { it.tabId == id } }
+                                            .first { it.tabId == id }
+                                    }
+                                }
                         }
                     } catch (_: LinkageError) {
                         null // Older hosts expose only this window's inventory.

@@ -19,8 +19,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
@@ -38,7 +39,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class ToolCreatorViewModelTest {
     @BeforeTest
-    fun mainDispatcher() = Dispatchers.setMain(UnconfinedTestDispatcher())
+    fun mainDispatcher() = Dispatchers.setMain(Dispatchers.Default)
 
     @AfterTest
     fun resetMainDispatcher() = Dispatchers.resetMain()
@@ -123,11 +124,38 @@ class ToolCreatorViewModelTest {
     fun `tab moved to another window is not relaunched`() = runBlocking {
         Harness().use { h ->
             val job = h.create(CliAgent.FLUCK_AGENT)
+            h.crossWindowInventory = true
             h.otherTabs.value = h.liveTabs.map { it.copy(windowId = "other-window") }
             h.liveTabs = emptyList()
             h.vm.reopenTerminal(job)
             await { h.vm.jobs.value.single().log.any { it.contains("another BOSS window") } }
             assertEquals(1, h.registry.launches.get())
+        }
+    }
+
+    @Test
+    fun `cross-window inventory published after refresh returns prevents duplicate launch`() = runBlocking {
+        Harness().use { h ->
+            val job = h.create(CliAgent.FLUCK_AGENT)
+            h.crossWindowInventory = true
+            h.publishAfterRefresh = h.liveTabs.map { it.copy(windowId = "other-window") }
+            h.liveTabs = emptyList()
+            assertTrue(h.otherTabs.value.isEmpty())
+            h.vm.reopenTerminal(job)
+            await { h.vm.jobs.value.single().log.any { it.contains("another BOSS window") } }
+            assertEquals(1, h.registry.launches.get())
+        }
+    }
+
+    @Test
+    fun `empty cross-window inventory only waits a bounded time before reopening a closed tab`() = runBlocking {
+        Harness().use { h ->
+            val job = h.create(CliAgent.FLUCK_AGENT)
+            h.crossWindowInventory = true
+            h.liveTabs = emptyList()
+            h.vm.reopenTerminal(job)
+            await { h.vm.jobs.value.single().agentTabId == "agent-2" }
+            assertEquals(2, h.registry.launches.get())
         }
     }
 
@@ -143,6 +171,8 @@ class ToolCreatorViewModelTest {
         @Volatile var liveTabs = emptyList<ActiveTabData>()
         @Volatile var failRefresh = false
         @Volatile var inventoryAvailable = true
+        @Volatile var publishAfterRefresh: List<ActiveTabData>? = null
+        @Volatile var crossWindowInventory = false
         val refreshes = AtomicInteger()
         val selections = AtomicInteger()
         val registry = Registry { id ->
@@ -151,14 +181,24 @@ class ToolCreatorViewModelTest {
         private val tabs: ActiveTabsProvider = proxy(ActiveTabsProvider::class.java) { name ->
             when (name) {
                 "getActiveTabs" -> cachedTabs
-                "getAllWindowTabs" -> otherTabs
+                "getAllWindowTabs" -> if (crossWindowInventory) otherTabs else cachedTabs
                 "refreshTabs" -> {
                     refreshes.incrementAndGet()
                     check(!failRefresh) { "inventory unavailable" }
                     cachedTabs.value = liveTabs
                     Unit
                 }
-                "refreshAllWindowTabs" -> Unit
+                "refreshAllWindowTabs" -> {
+                    publishAfterRefresh?.let { refreshed ->
+                        scope.launch {
+                            // Publish only once the caller awaits the derived flow. A direct
+                            // synchronous read after refresh must miss this tab in the test.
+                            otherTabs.subscriptionCount.first { it > 0 }
+                            otherTabs.value = refreshed
+                        }
+                    }
+                    Unit
+                }
                 "selectTab" -> { selections.incrementAndGet(); Unit }
                 else -> error("Unexpected tab operation: $name")
             }
