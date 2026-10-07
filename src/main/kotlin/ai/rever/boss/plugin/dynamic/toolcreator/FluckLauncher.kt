@@ -12,7 +12,10 @@ private const val FLUCK_PROVIDER = "ai.rever.boss.plugin.dynamic.fluckagent"
 private const val FLUCK_LAUNCH_TOOL = "fluck_launch"
 
 internal fun isFluckAvailable(registry: McpToolRegistry?): Boolean = registry?.tools?.value?.any {
-    it.providerId == FLUCK_PROVIDER && it.definition.name == FLUCK_LAUNCH_TOOL
+    val namespace = "$FLUCK_PROVIDER::"
+    val ownedByFluck = it.providerId == FLUCK_PROVIDER ||
+        (it.providerId.startsWith(namespace) && it.providerId.length > namespace.length)
+    ownedByFluck && it.definition.name == FLUCK_LAUNCH_TOOL
 } == true
 
 /** Fluck opens and owns its native tab; the host registry applies availability and permission gates. */

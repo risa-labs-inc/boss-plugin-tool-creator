@@ -48,6 +48,20 @@ class FluckLauncherTest {
     }
 
     @Test
+    fun `host namespaced provider is accepted while lookalike namespaces are rejected`() = runBlocking<Unit> {
+        val pluginId = "ai.rever.boss.plugin.dynamic.fluckagent"
+        val namespaced = RecordingRegistry(reply("/tmp/project"), provider = "$pluginId::$pluginId")
+        assertTrue(isFluckAvailable(namespaced))
+        assertEquals("native-session-id", launchFluck(namespaced, "Tool", "/tmp/project"))
+        listOf("$pluginId::", "$pluginId-extra::$pluginId", "$pluginId.evil::$pluginId").forEach { provider ->
+            val lookalike = RecordingRegistry(reply("/tmp/project"), provider = provider)
+            assertFalse(isFluckAvailable(lookalike))
+            assertFailsWith<IllegalStateException> { launchFluck(lookalike, "Tool", "/tmp/project") }
+            assertEquals("", lookalike.arguments)
+        }
+    }
+
+    @Test
     fun `tool error never becomes a successful launch`() = runBlocking<Unit> {
         val registry = RecordingRegistry(McpToolResult("Project unavailable", isError = true))
         val error = assertFailsWith<IllegalStateException> { launchFluck(registry, "Tool", "/tmp/project") }
