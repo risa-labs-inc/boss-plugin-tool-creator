@@ -8,6 +8,7 @@ import ai.rever.boss.plugin.api.PluginContext
 import ai.rever.boss.plugin.tab.terminal.TerminalTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabType
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val PUBLISH_SCOPE = "publish"
 private const val API_KEY_SECRET_WEBSITE = "boss_plugin_store_api_key"
@@ -56,6 +58,7 @@ class ToolCreatorViewModel(
     private val panelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val generator = ScaffoldGenerator()
     private val jobIds = AtomicLong(0)
+    private val reopeningJobs = ConcurrentHashMap.newKeySet<Long>()
     private val pendingPublishKey = AtomicReference<String?>(null)
     private val storedPublishKey = AtomicReference<String?>(null)
     private val copiedClipboardKey = AtomicReference<String?>(null)
@@ -425,10 +428,6 @@ class ToolCreatorViewModel(
             refreshEnvStatus()
             return
         }
-        if (context.splitViewOperations == null) {
-            _form.update { it.copy(error = "BOSS cannot open an agent tab here. Open Tool Creator in a workspace and retry.") }
-            return
-        }
         if (_jobs.value.any { it.status == JobStatus.RUNNING && it.toolName.equals(state.toolName.trim(), ignoreCase = true) }) {
             _form.update { it.copy(error = "A build for \"${state.toolName.trim()}\" is already running") }
             return
@@ -458,10 +457,11 @@ class ToolCreatorViewModel(
             try {
                 val publishKey = if (spec.createGitHubRepo) mintPublishKey(spec) else null
                 val dir = generator.scaffold(spec, publishKey) { appendJobLog(jobId, it) }
-                openAgentTab(jobId, spec.toolName.trim(), spec.agent, dir.absolutePath)
+                val opened = openAgentTab(jobId, spec.toolName.trim(), spec.agent, dir.absolutePath)
                 updateJob(jobId) { it.copy(status = JobStatus.SUCCESS) }
                 context.notificationProvider?.showToast(
-                    message = "${spec.toolName} scaffolded — opened ${spec.agent.displayName}",
+                    message = if (opened) "${spec.toolName} scaffolded — opened ${spec.agent.displayName}"
+                        else "${spec.toolName} scaffolded — see the setup log to launch ${spec.agent.displayName}",
                     type = NotificationType.SUCCESS,
                     title = "Tool Creator",
                 )
@@ -481,19 +481,45 @@ class ToolCreatorViewModel(
 
     /** Focus a live native conversation, or open an agent for an existing scaffold. */
     fun reopenTerminal(job: ToolJob) {
-        context.pluginScope.launch(Dispatchers.IO) {
+        if (!reopeningJobs.add(job.id)) return
+        val reopen = context.pluginScope.launch(Dispatchers.IO) {
             try {
-                if (!File(job.path, "build.gradle.kts").isFile) {
+                val current = _jobs.value.firstOrNull { it.id == job.id } ?: job
+                if (!File(current.path, "build.gradle.kts").isFile) {
                     appendJobLog(job.id, "Project setup did not finish. Dismiss this entry and create the plugin again.")
                     return@launch
                 }
-                val tabs = context.activeTabsProvider
-                val existing = job.agentTabId?.let { id -> tabs?.activeTabs?.value?.firstOrNull { it.tabId == id } }
-                if (existing != null) {
-                    tabs?.selectTab(existing.tabId, existing.panelId)
-                } else {
-                    openAgentTab(job.id, job.toolName, job.agent, job.path)
+                val id = current.agentTabId
+                if (id != null) {
+                    val tabs = checkNotNull(context.activeTabsProvider) {
+                        "Cannot check whether the existing agent tab is open. Check your BOSS tabs before retrying."
+                    }
+                    // Refresh on Main after any queued host openTab, rather than sampling the
+                    // host's periodically refreshed cache and replaying an already running task.
+                    val local = withContext(Dispatchers.Main) {
+                        tabs.refreshTabs()
+                        tabs.activeTabs.value.firstOrNull { it.tabId == id }
+                    }
+                    if (local != null) {
+                        withContext(Dispatchers.Main) { tabs.selectTab(local.tabId, local.panelId) }
+                        return@launch
+                    }
+                    // Newer hosts expose other windows too. A tab there is still live, even
+                    // though this window's selectTab cannot bring that other window forward.
+                    val elsewhere = try {
+                        withContext(Dispatchers.Main) {
+                            tabs.refreshAllWindowTabs()
+                            tabs.allWindowTabs.value.firstOrNull { it.tabId == id }
+                        }
+                    } catch (_: LinkageError) {
+                        null // Older hosts expose only this window's inventory.
+                    }
+                    if (elsewhere != null) {
+                        appendJobLog(job.id, "${current.agent.displayName} is already open in another BOSS window.")
+                        return@launch
+                    }
                 }
+                openAgentTab(current.id, current.toolName, current.agent, current.path)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -501,6 +527,7 @@ class ToolCreatorViewModel(
                 context.notificationProvider?.showToast(message = "Could not open ${job.agent.displayName}. Check the setup log.", type = NotificationType.ERROR, title = "Tool Creator")
             }
         }
+        reopen.invokeOnCompletion { reopeningJobs.remove(job.id) }
     }
 
     fun dismissJob(job: ToolJob) {
@@ -513,14 +540,18 @@ class ToolCreatorViewModel(
         false // An older host may not expose the MCP registry yet; CLI agents still work.
     }
 
-    private suspend fun openAgentTab(jobId: Long, title: String, agent: CliAgent, workingDirectory: String) {
-        val ops = context.splitViewOperations ?: error("Agent tabs are unavailable. Your project is ready at $workingDirectory.")
+    private suspend fun openAgentTab(jobId: Long, title: String, agent: CliAgent, workingDirectory: String): Boolean {
         if (agent.isNative) {
             check(nativeAgentAvailable()) { "Install or update Fluck Agent and enable its fluck_launch tool, then reopen this project." }
             val tabId = launchFluck(context.mcpToolRegistry, title, workingDirectory)
             updateJob(jobId) { it.copy(agentTabId = tabId) }
             appendJobLog(jobId, "Opened Fluck Agent with this project and the tool-creator instructions")
         } else {
+            val ops = context.splitViewOperations ?: run {
+                val quotedDirectory = "'" + workingDirectory.replace("'", "'\\''") + "'"
+                appendJobLog(jobId, "Terminal unavailable — run manually: cd $quotedDirectory && ${agent.launchCommand()}")
+                return false
+            }
             val tab = TerminalTabInfo(
                 id = "tool-creator-$jobId-${System.currentTimeMillis()}",
                 typeId = TerminalTabType.typeId,
@@ -532,6 +563,7 @@ class ToolCreatorViewModel(
             updateJob(jobId) { it.copy(agentTabId = tab.id) }
             appendJobLog(jobId, "Opened ${agent.displayName} in a terminal tab at $workingDirectory")
         }
+        return true
     }
 
     /**
