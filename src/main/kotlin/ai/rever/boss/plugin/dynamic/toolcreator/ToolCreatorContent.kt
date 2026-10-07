@@ -71,6 +71,7 @@ fun ToolCreatorContent(viewModel: ToolCreatorViewModel) {
         if (viewModel.consumePendingOpenRequest()) viewModel.openDialog()
     }
 
+    val pendingOpen by viewModel.pendingAgentOpen.collectAsState()
     BossTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = BossThemeColors.SurfaceColor) {
             Column(
@@ -116,6 +117,9 @@ fun ToolCreatorContent(viewModel: ToolCreatorViewModel) {
             }
         }
         if (showDialog) CreateToolDialog(viewModel)
+        pendingOpen?.let {
+            AgentOpenLocationDialog("Open Fluck Agent", viewModel::chooseAgentLocation, viewModel::dismissAgentLocation)
+        }
     }
 }
 

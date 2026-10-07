@@ -23,6 +23,7 @@ internal suspend fun launchFluck(
     registry: McpToolRegistry?,
     toolName: String,
     workingDirectory: String,
+    location: AgentOpenLocation = AgentOpenLocation.NEW_TAB,
 ): String {
     check(isFluckAvailable(registry)) {
         "Fluck Agent is unavailable. Install, enable, or update it in the Toolbox and enable its fluck_launch tool, then reopen this project."
@@ -41,6 +42,7 @@ internal suspend fun launchFluck(
         put("project", workingDirectory)
         put("prompt", prompt)
         put("title", toolName)
+        put("location", location.value)
     }.toString()
     val result = checkNotNull(registry).invoke(FLUCK_LAUNCH_TOOL, arguments)
     check(!result.isError) { "Fluck Agent could not open this project: ${result.text.take(500)}" }

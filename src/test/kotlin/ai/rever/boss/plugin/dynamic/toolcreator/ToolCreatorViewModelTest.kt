@@ -86,6 +86,8 @@ class ToolCreatorViewModelTest {
             val release = CompletableDeferred<Unit>()
             h.registry.beforeLaunch = { release.await() }
             h.vm.reopenTerminal(oldJob)
+            await { h.vm.pendingAgentOpen.value != null }
+            h.vm.chooseAgentLocation(AgentOpenLocation.NEW_TAB)
             await { h.registry.launches.get() == 2 }
             h.vm.reopenTerminal(oldJob)
             release.complete(Unit)
@@ -154,8 +156,42 @@ class ToolCreatorViewModelTest {
             h.crossWindowInventory = true
             h.liveTabs = emptyList()
             h.vm.reopenTerminal(job)
+            await { h.vm.pendingAgentOpen.value != null }
+            h.vm.chooseAgentLocation(AgentOpenLocation.NEW_TAB)
             await { h.vm.jobs.value.single().agentTabId == "agent-2" }
             assertEquals(2, h.registry.launches.get())
+        }
+    }
+
+    @Test
+    fun `cancel destination keeps scaffold without submitting a Fluck task`() = runBlocking {
+        Harness().use { h ->
+            h.vm.setToolName("Cancelled Plugin")
+            h.vm.setDescription("A local scaffold")
+            h.vm.setCreateGitHubRepo(false)
+            h.vm.setParentDir(h.parentDirectory)
+            h.vm.startBuilding()
+            await { h.vm.pendingAgentOpen.value != null }
+            h.vm.dismissAgentLocation()
+            assertEquals(0, h.registry.launches.get())
+            assertTrue(java.io.File(h.vm.jobs.value.single().path, "build.gradle.kts").isFile)
+            assertEquals(null, h.vm.pendingAgentOpen.value)
+        }
+    }
+
+    @Test
+    fun `selected split destination is sent to native launch`() = runBlocking {
+        Harness().use { h ->
+            h.vm.setToolName("Split Plugin")
+            h.vm.setDescription("A local scaffold")
+            h.vm.setCreateGitHubRepo(false)
+            h.vm.setParentDir(h.parentDirectory)
+            h.vm.startBuilding()
+            await { h.vm.pendingAgentOpen.value != null }
+            assertEquals(0, h.registry.launches.get())
+            h.vm.chooseAgentLocation(AgentOpenLocation.SPLIT_RIGHT)
+            await { h.vm.jobs.value.single().agentTabId != null }
+            assertEquals("split_right", h.registry.lastLocation)
         }
     }
 
@@ -165,6 +201,7 @@ class ToolCreatorViewModelTest {
 
     private class Harness : AutoCloseable {
         private val directory = Files.createTempDirectory("creator O'Brien test ").toFile()
+        val parentDirectory get() = directory.absolutePath
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val cachedTabs = MutableStateFlow<List<ActiveTabData>>(emptyList())
         val otherTabs = MutableStateFlow<List<ActiveTabData>>(emptyList())
@@ -220,17 +257,25 @@ class ToolCreatorViewModelTest {
             vm.setCreateGitHubRepo(false)
             vm.setAgent(agent)
             vm.startBuilding()
-            return withTimeout(15_000) {
+            val prepared = withTimeout(15_000) {
                 while (vm.jobs.value.firstOrNull()?.status == ToolCreatorViewModel.JobStatus.RUNNING) delay(10)
                 checkNotNull(vm.jobs.value.firstOrNull()) { "Creation rejected: ${vm.form.value.error}" }
             }
+            if (agent.isNative && vm.pendingAgentOpen.value != null) {
+                assertEquals(0, registry.launches.get(), "launch preceded destination choice")
+                vm.chooseAgentLocation(AgentOpenLocation.NEW_TAB)
+                withTimeout(15_000) { while (vm.jobs.value.single().agentTabId == null) delay(10) }
+            }
+            return vm.jobs.value.firstOrNull() ?: prepared
         }
 
         @Suppress("UNCHECKED_CAST")
-        fun reopeningJobs(): Set<Long> = ToolCreatorViewModel::class.java.getDeclaredField("reopeningJobs").let {
-            it.isAccessible = true
-            it.get(vm) as Set<Long>
-        }
+        fun reopeningJobs(): Set<Long> = listOf("reopeningJobs", "launchingJobs").flatMap { name ->
+            ToolCreatorViewModel::class.java.getDeclaredField(name).let {
+                it.isAccessible = true
+                (it.get(vm) as Set<Long>).toList()
+            }
+        }.toSet()
 
         override fun close() {
             scope.cancel()
@@ -241,6 +286,7 @@ class ToolCreatorViewModelTest {
 
     private class Registry(private val opened: (String) -> Unit) : McpToolRegistry {
         val launches = AtomicInteger()
+        @Volatile var lastLocation: String? = null
         @Volatile var beforeLaunch: suspend () -> Unit = {}
         private val definition = RegisteredMcpTool("ai.rever.boss.plugin.dynamic.fluckagent", McpToolDefinition(
             name = "fluck_launch", description = "Test launch", readOnly = false,
@@ -253,7 +299,9 @@ class ToolCreatorViewModelTest {
         override suspend fun invoke(toolName: String, arguments: String): McpToolResult {
             val number = launches.incrementAndGet()
             beforeLaunch()
-            val project = Json.parseToJsonElement(arguments).jsonObject.getValue("project").jsonPrimitive.content
+            val parsed = Json.parseToJsonElement(arguments).jsonObject
+            lastLocation = parsed["location"]?.jsonPrimitive?.content
+            val project = parsed.getValue("project").jsonPrimitive.content
             val id = "agent-$number"
             opened(id)
             return McpToolResult(buildJsonObject { put("tab_id", id); put("project", project) }.toString())

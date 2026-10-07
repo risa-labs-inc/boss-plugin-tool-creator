@@ -68,7 +68,8 @@ capabilities, coding-agent picker). "Start building" then:
    scaffold location is the boss_plugins umbrella root - registers the repo as a
    git submodule there (`git submodule add` + local commit, push left to user).
 5. Fluck Agent uses its `fluck_launch` MCP tool through `mcpToolRegistry.invoke`,
-   with the repository and a skill-reading prompt. Confirm the returned repository
+   after the user chooses the active panel or a split in the link-style destination dialog,
+   with the repository, selected location, and a skill-reading prompt. Confirm the returned repository
    and retain its real `tab_id` for reopening; use the exposed registry tool list
    for availability rather than a CLI binary or the host tab registry.
    Other agents open a BossTerm tab via `splitViewOperations.openTab(TerminalTabInfo(...))`

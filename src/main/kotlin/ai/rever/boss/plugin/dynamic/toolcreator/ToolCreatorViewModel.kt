@@ -58,9 +58,36 @@ class ToolCreatorViewModel(
 ) {
 
     private val panelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    internal data class PendingAgentOpen(val jobId: Long, val title: String, val directory: String)
+    private val _pendingAgentOpen = MutableStateFlow<PendingAgentOpen?>(null)
+    internal val pendingAgentOpen = _pendingAgentOpen.asStateFlow()
+
+    internal fun chooseAgentLocation(location: AgentOpenLocation) {
+        val pending = _pendingAgentOpen.value ?: return
+        if (!launchingJobs.add(pending.jobId)) return
+        _pendingAgentOpen.value = null
+        val launch = context.pluginScope.launch(Dispatchers.IO) {
+            try {
+                openAgentTab(pending.jobId, pending.title, CliAgent.FLUCK_AGENT, pending.directory, location)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                appendJobLog(pending.jobId, "Could not open Fluck Agent: ${e.message}")
+                context.notificationProvider?.showToast(message = "Could not open Fluck Agent. Check the setup log.", type = NotificationType.ERROR, title = "Tool Creator")
+            }
+        }
+        launch.invokeOnCompletion { launchingJobs.remove(pending.jobId) }
+    }
+
+    internal fun dismissAgentLocation() {
+        _pendingAgentOpen.value?.let { appendJobLog(it.jobId, "Opening cancelled. Your project is ready; choose Open Fluck Agent to continue.") }
+        _pendingAgentOpen.value = null
+    }
+
     private val generator = ScaffoldGenerator()
     private val jobIds = AtomicLong(0)
     private val reopeningJobs = ConcurrentHashMap.newKeySet<Long>()
+    private val launchingJobs = ConcurrentHashMap.newKeySet<Long>()
     private val pendingPublishKey = AtomicReference<String?>(null)
     private val storedPublishKey = AtomicReference<String?>(null)
     private val copiedClipboardKey = AtomicReference<String?>(null)
@@ -463,6 +490,7 @@ class ToolCreatorViewModel(
                 updateJob(jobId) { it.copy(status = JobStatus.SUCCESS) }
                 context.notificationProvider?.showToast(
                     message = if (opened) "${spec.toolName} scaffolded — opened ${spec.agent.displayName}"
+                        else if (spec.agent.isNative) "${spec.toolName} scaffolded — choose where to open Fluck Agent"
                         else "${spec.toolName} scaffolded — see the setup log to launch ${spec.agent.displayName}",
                     type = NotificationType.SUCCESS,
                     title = "Tool Creator",
@@ -483,7 +511,7 @@ class ToolCreatorViewModel(
 
     /** Focus a live native conversation, or open an agent for an existing scaffold. */
     fun reopenTerminal(job: ToolJob) {
-        if (!reopeningJobs.add(job.id)) return
+        if (job.id in launchingJobs || !reopeningJobs.add(job.id)) return
         val reopen = context.pluginScope.launch(Dispatchers.IO) {
             try {
                 val current = _jobs.value.firstOrNull { it.id == job.id } ?: job
@@ -552,10 +580,16 @@ class ToolCreatorViewModel(
         false // An older host may not expose the MCP registry yet; CLI agents still work.
     }
 
-    private suspend fun openAgentTab(jobId: Long, title: String, agent: CliAgent, workingDirectory: String): Boolean {
+    private suspend fun openAgentTab(jobId: Long, title: String, agent: CliAgent, workingDirectory: String, location: AgentOpenLocation? = null): Boolean {
         if (agent.isNative) {
             check(nativeAgentAvailable()) { "Install or update Fluck Agent and enable its fluck_launch tool, then reopen this project." }
-            val tabId = launchFluck(context.mcpToolRegistry, title, workingDirectory)
+            if (location == null) {
+                check(_pendingAgentOpen.value == null) { "Choose a location for the pending Fluck Agent launch first." }
+                _pendingAgentOpen.value = PendingAgentOpen(jobId, title, workingDirectory)
+                appendJobLog(jobId, "Choose where to open Fluck Agent; no task has been submitted yet")
+                return false
+            }
+            val tabId = launchFluck(context.mcpToolRegistry, title, workingDirectory, location)
             updateJob(jobId) { it.copy(agentTabId = tabId) }
             appendJobLog(jobId, "Opened Fluck Agent with this project and the tool-creator instructions")
         } else {

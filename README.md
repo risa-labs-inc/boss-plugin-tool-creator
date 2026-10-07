@@ -35,6 +35,8 @@ Choose **Create a plugin** in Tool Creator (or **Toolbox → Create**) to enter:
 The native handoff uses Fluck Agent’s `fluck_launch` tool through the BOSS MCP
 registry. Install or update Fluck Agent and keep that tool enabled in the Toolbox.
 The chosen repository is passed explicitly and confirmed by the launch response.
+Choose the active main panel or a split in the link-style destination dialog.
+Cancelling keeps the scaffold ready without submitting an agent task.
 
 ## Build
 
