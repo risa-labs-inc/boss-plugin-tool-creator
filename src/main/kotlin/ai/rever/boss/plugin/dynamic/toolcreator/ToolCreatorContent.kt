@@ -280,7 +280,7 @@ private fun CreateToolForm(viewModel: ToolCreatorViewModel, dialogWindow: java.a
                             }
                         }
                         if (form.agent.isNative && env.checked && !env.fluckAvailable) {
-                            FormNotice("Install or enable Fluck Agent in the Toolbox. If it is already enabled, update BOSS and Fluck, then reopen this dialog.")
+                            FormNotice("Install or update Fluck Agent in the Toolbox and enable its fluck_launch tool, then reopen this dialog.")
                         } else if (!form.agent.isNative && env.checked && form.agent in env.missingAgents) {
                             FormNotice("${form.agent.binary} was not found. Install it or choose another agent; shell-managed installations may still work.")
                         }

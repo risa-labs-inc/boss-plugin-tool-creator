@@ -67,9 +67,10 @@ capabilities, coding-agent picker). "Start building" then:
    `pluginStoreApiKeyProvider.createApiKey(scopes=["publish"])`), and - when the
    scaffold location is the boss_plugins umbrella root - registers the repo as a
    git submodule there (`git submodule add` + local commit, push left to user).
-5. Fluck Agent uses the registered `fluck-agent` New Tab factory with
-   `NewTabContext(projectPath=repo)` and a skill-reading prompt; retain the tab
-   ID to focus it on reopen. Detect factory availability rather than a CLI binary.
+5. Fluck Agent uses its `fluck_launch` MCP tool through `mcpToolRegistry.invoke`,
+   with the repository and a skill-reading prompt. Confirm the returned repository
+   and retain its real `tab_id` for reopening; use the exposed registry tool list
+   for availability rather than a CLI binary or the host tab registry.
    Other agents open a BossTerm tab via `splitViewOperations.openTab(TerminalTabInfo(...))`
    cd'd into the repo, running the chosen CLI with a kick-off prompt that
    engages the skill (`CliAgent.launchCommand()`).

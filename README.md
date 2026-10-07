@@ -10,7 +10,7 @@ coding agent.
 
 **[Create and publish a plugin](https://github.com/risa-labs-inc/BossConsole/wiki/Create-and-Publish-a-Plugin)** covers **Toolbox → Create**, agent handoff, GitHub setup, and your publish key. Automatic repo creation targets `risa-labs-inc`; use the guide's personal-repository path if you do not have access to that organisation.
 
-Clicking the Tool Creator icon opens a dialog asking for:
+Choose **Create a plugin** in Tool Creator (or **Toolbox → Create**) to enter:
 
 - **Plugin name** and **tool description**
 - **Tool permissions** (files, shell, network, browser, secrets, MCP tools)
@@ -32,8 +32,9 @@ Clicking the Tool Creator icon opens a dialog asking for:
    Fluck must be installed and enabled; no Fluck CLI is required. The project
    cards show setup progress and logs, and reopen the existing agent tab.
 
-The native handoff uses the public New Tab factory (plugin API 1.0.97). Fluck
-Agent must support repository-scoped tabs; update it if the project folder is missing.
+The native handoff uses Fluck Agent’s `fluck_launch` tool through the BOSS MCP
+registry. Install or update Fluck Agent and keep that tool enabled in the Toolbox.
+The chosen repository is passed explicitly and confirmed by the launch response.
 
 ## Build
 

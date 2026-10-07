@@ -5,7 +5,6 @@ import ai.rever.boss.plugin.api.ApiKeyInfo
 import ai.rever.boss.plugin.api.CreateSecretRequestData
 import ai.rever.boss.plugin.api.NotificationType
 import ai.rever.boss.plugin.api.PluginContext
-import ai.rever.boss.plugin.api.TabTypeId
 import ai.rever.boss.plugin.tab.terminal.TerminalTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabType
 import java.io.File
@@ -76,8 +75,8 @@ class ToolCreatorViewModel(
 
     /**
      * Availability of the external CLIs the plugin shells out to. Advisory only:
-     * detection can miss shell-rc-managed PATHs (nvm etc.), and the scaffold
-     * degrades gracefully, so warnings never block the build.
+     * detection can miss shell-rc-managed PATHs (nvm etc.), so CLI warnings do
+     * not block the build. Native Fluck availability is a separate launch gate.
      */
     data class EnvStatus(
         val missingAgents: Set<CliAgent> = emptySet(),
@@ -422,7 +421,7 @@ class ToolCreatorViewModel(
             return
         }
         if (state.agent.isNative && !nativeAgentAvailable()) {
-            _form.update { it.copy(error = "Install or enable Fluck Agent in Toolbox, or update BOSS, before creating the project.") }
+            _form.update { it.copy(error = "Install or update Fluck Agent in Toolbox and enable its fluck_launch tool before creating the project.") }
             refreshEnvStatus()
             return
         }
@@ -509,18 +508,17 @@ class ToolCreatorViewModel(
     }
 
     private fun nativeAgentAvailable(): Boolean = try {
-        context.splitViewOperations != null && context.tabRegistry.getTabTypeInfo(FLUCK_TAB_TYPE)?.newTabSpec != null
+        isFluckAvailable(context.mcpToolRegistry)
     } catch (_: LinkageError) {
-        false // An older host may not expose the native tab factory yet; CLI agents still work.
+        false // An older host may not expose the MCP registry yet; CLI agents still work.
     }
 
-    private fun openAgentTab(jobId: Long, title: String, agent: CliAgent, workingDirectory: String) {
+    private suspend fun openAgentTab(jobId: Long, title: String, agent: CliAgent, workingDirectory: String) {
         val ops = context.splitViewOperations ?: error("Agent tabs are unavailable. Your project is ready at $workingDirectory.")
         if (agent.isNative) {
-            check(nativeAgentAvailable()) { "Update BOSS and install or enable Fluck Agent, then reopen this project." }
-            val tab = createFluckTab(context.tabRegistry.getTabTypeInfo(FLUCK_TAB_TYPE), title, workingDirectory, context.windowId)
-            ops.openTab(tab)
-            updateJob(jobId) { it.copy(agentTabId = tab.id) }
+            check(nativeAgentAvailable()) { "Install or update Fluck Agent and enable its fluck_launch tool, then reopen this project." }
+            val tabId = launchFluck(context.mcpToolRegistry, title, workingDirectory)
+            updateJob(jobId) { it.copy(agentTabId = tabId) }
             appendJobLog(jobId, "Opened Fluck Agent with this project and the tool-creator instructions")
         } else {
             val tab = TerminalTabInfo(
@@ -578,8 +576,6 @@ class ToolCreatorViewModel(
     }
 
     companion object {
-        private val FLUCK_TAB_TYPE = TabTypeId("fluck-agent", "ai.rever.boss.plugin.dynamic.fluckagent")
-
         fun defaultParentDir(): String =
             File(System.getProperty("user.home"), "BossTools")
                 .apply { mkdirs() }
