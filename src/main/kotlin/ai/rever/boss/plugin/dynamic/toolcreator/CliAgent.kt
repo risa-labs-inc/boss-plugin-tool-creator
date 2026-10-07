@@ -3,7 +3,7 @@ package ai.rever.boss.plugin.dynamic.toolcreator
 import java.io.File
 
 /**
- * AI coding CLIs the Tool Creator can hand a freshly scaffolded plugin to.
+ * Coding agents the Tool Creator can hand a freshly scaffolded plugin to.
  *
  * Each agent gets the tool-creator skill written into the scaffolded repo in its
  * own native format, and is launched in a new BossTerm tab with a kick-off prompt
@@ -13,10 +13,13 @@ enum class CliAgent(
     val displayName: String,
     val binary: String,
 ) {
+    FLUCK_AGENT("Fluck Agent", ""),
     CLAUDE_CODE("Claude Code", "claude"),
     CODEX("Codex", "codex"),
     GEMINI("Gemini", "gemini"),
     OPENCODE("OpenCode", "opencode");
+
+    val isNative: Boolean get() = this == FLUCK_AGENT
 
     /**
      * Shell command that opens the CLI inside the scaffolded repo with the
@@ -24,6 +27,7 @@ enum class CliAgent(
      * shell quoting untouched.
      */
     fun launchCommand(): String = when (this) {
+        FLUCK_AGENT -> error("Fluck Agent opens in BOSS, not a terminal")
         CLAUDE_CODE -> "claude \"/tool-creator\""
         CODEX -> "codex \"Load the tool-creator skill in .codex/skills/tool-creator/SKILL.md and follow it to build this tool.\""
         GEMINI -> "gemini -i \"Follow the tool-creator instructions in GEMINI.md to build this tool.\""
@@ -32,6 +36,7 @@ enum class CliAgent(
 
     /** Best-effort check whether the CLI binary is on PATH (or in common install dirs). */
     fun isInstalled(): Boolean {
+        if (isNative) return false // Availability comes from the host plugin loader, not PATH.
         val home = System.getProperty("user.home")
         val extraDirs = listOf("$home/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin")
         val pathDirs = (System.getenv("PATH") ?: "").split(File.pathSeparator)

@@ -25,11 +25,18 @@ repositories {
 dependencies {
     if (useLocalDependencies) {
         // Local dev: boss-plugin-api JAR from sibling repo (pinned version)
-        compileOnly(files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.55.jar"))
+        compileOnly(files("$bossPluginApiPath/build/libs/boss-plugin-api-1.0.97.jar"))
     } else {
         // CI: downloaded JAR
         compileOnly(files("build/downloaded-deps/boss-plugin-api.jar"))
     }
+
+    testImplementation(kotlin("test"))
+    testImplementation(files(if (useLocalDependencies) {
+        "$bossPluginApiPath/build/libs/boss-plugin-api-1.0.97.jar"
+    } else {
+        "build/downloaded-deps/boss-plugin-api.jar"
+    }))
 
     implementation(compose.desktop.currentOs)
     implementation(compose.runtime)

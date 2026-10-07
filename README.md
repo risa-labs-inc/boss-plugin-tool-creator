@@ -14,7 +14,7 @@ Clicking the Tool Creator icon opens a dialog asking for:
 
 - **Plugin name** and **tool description**
 - **Tool permissions** (files, shell, network, browser, secrets, MCP tools)
-- **Which CLI to build with**: Claude Code, Codex, Gemini, or OpenCode
+- **Coding agent**: Fluck Agent inside BOSS, or Claude Code, Codex, Gemini, or OpenCode in a terminal
 
 "Start building" then:
 
@@ -27,8 +27,13 @@ Clicking the Tool Creator icon opens a dialog asking for:
    including how to expose the tool via MCP.
 3. Initializes git (optionally creates `risa-labs-inc/boss-plugin-<name>` on
    GitHub with the Plugin Store publish secret installed).
-4. Opens a BossTerm tab in the new repo running the chosen CLI with the skill
-   already engaged.
+4. Opens a Fluck Agent tab scoped to the new repository, with the tool-creator
+   instructions as its first task, or a BossTerm tab running the chosen CLI.
+   Fluck must be installed and enabled; no Fluck CLI is required. The project
+   cards show setup progress and logs, and reopen the existing agent tab.
+
+The native handoff uses the public New Tab factory (plugin API 1.0.97). Fluck
+Agent must support repository-scoped tabs; update it if the project folder is missing.
 
 ## Build
 

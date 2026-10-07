@@ -4,6 +4,7 @@ import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.ui.BossThemeColors
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -26,8 +28,6 @@ import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.Divider
 import androidx.compose.material.Icon
 import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.RadioButton
-import androidx.compose.material.RadioButtonDefaults
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,371 +66,302 @@ fun ToolCreatorContent(viewModel: ToolCreatorViewModel) {
     val jobs by viewModel.jobs.collectAsState()
     val publishApiKey by viewModel.publishApiKey.collectAsState()
 
-    // Open the dialog when the panel appears if either: another plugin (the
-    // Toolbox "Create a new plugin") requested it, or this is a fresh panel with
-    // no builds yet. Otherwise just show the panel with its "New Tool…" button.
     LaunchedEffect(Unit) {
         viewModel.refreshPublishApiKeyStatus()
-        if (viewModel.consumePendingOpenRequest() || jobs.isEmpty()) viewModel.openDialog()
+        if (viewModel.consumePendingOpenRequest()) viewModel.openDialog()
     }
 
     BossTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = BossThemeColors.SurfaceColor) {
-            Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        FeatherIcons.Tool,
-                        contentDescription = null,
-                        tint = BossThemeColors.AccentColor,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Tool Creator",
-                        color = BossThemeColors.TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Scaffold a BOSS plugin and hand it to an AI coding agent.",
-                    color = BossThemeColors.TextSecondary,
-                    fontSize = 12.sp,
-                )
-                if (publishApiKey.shouldShowSection) {
-                    Spacer(Modifier.height(12.dp))
-                    PublishApiKeySection(
-                        state = publishApiKey,
-                        onCreate = viewModel::createPublishApiKey,
-                        onCopy = viewModel::copyPublishApiKey,
-                        onRetry = viewModel::refreshPublishApiKeyStatus,
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    onClick = { viewModel.openDialog() },
-                    colors = ButtonDefaults.buttonColors(backgroundColor = BossThemeColors.AccentColor),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("New Tool…", color = BossThemeColors.TextPrimary)
-                }
-
-                if (jobs.isNotEmpty()) {
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        "Builds this session",
-                        color = BossThemeColors.TextSecondary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                        jobs.forEach { job ->
-                            JobRow(job, viewModel)
-                            Divider(color = BossThemeColors.BorderColor)
-                        }
+                    Surface(color = BossThemeColors.AccentColor.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp)) {
+                        Icon(FeatherIcons.Tool, null, tint = BossThemeColors.AccentColor, modifier = Modifier.padding(10.dp).size(20.dp))
                     }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text("Tool Creator", color = BossThemeColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Turn an idea into a BOSS plugin", color = BossThemeColors.TextSecondary, fontSize = 12.sp)
+                    }
+                }
+                CreatorCard {
+                    Text("What do you want to build?", color = BossThemeColors.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Describe your tool, choose an agent, and start with a ready-to-build repository.", color = BossThemeColors.TextSecondary, fontSize = 12.sp)
+                    Button(
+                        onClick = viewModel::openDialog,
+                        colors = ButtonDefaults.buttonColors(backgroundColor = BossThemeColors.AccentColor),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                    ) { Text("Create a plugin", color = BossThemeColors.TextPrimary) }
+                    if (jobs.isEmpty()) {
+                        WorkflowStep("1", "Describe", "Name your plugin and tell the agent what it should do.")
+                        WorkflowStep("2", "Build", "Use Fluck inside BOSS or your preferred coding CLI.")
+                        WorkflowStep("3", "Publish", "Connect GitHub and use your own store publishing key.")
+                    }
+                }
+                if (publishApiKey.shouldShowSection) {
+                    PublishApiKeySection(publishApiKey, viewModel::createPublishApiKey, viewModel::copyPublishApiKey, viewModel::refreshPublishApiKeyStatus)
+                }
+                if (jobs.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("This session", color = BossThemeColors.TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.weight(1f))
+                        Text("${jobs.size} projects", color = BossThemeColors.TextMuted, fontSize = 11.sp)
+                    }
+                    jobs.forEach { JobRow(it, viewModel) }
                 }
             }
         }
+        if (showDialog) CreateToolDialog(viewModel)
+    }
+}
 
-        if (showDialog) {
-            CreateToolDialog(viewModel)
+@Composable
+private fun CreatorCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = BossThemeColors.SurfaceColor,
+        border = BorderStroke(1.dp, BossThemeColors.BorderColor),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+    }
+}
+
+@Composable
+private fun WorkflowStep(number: String, title: String, description: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Surface(color = BossThemeColors.AccentColor.copy(alpha = 0.12f), shape = RoundedCornerShape(12.dp)) {
+            Text(number, color = BossThemeColors.AccentColor, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp))
+        }
+        Spacer(Modifier.width(9.dp))
+        Column {
+            Text(title, color = BossThemeColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(description, color = BossThemeColors.TextSecondary, fontSize = 11.sp)
         }
     }
 }
 
 @Composable
 private fun JobRow(job: ToolCreatorViewModel.ToolJob, viewModel: ToolCreatorViewModel) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        when (job.status) {
-            ToolCreatorViewModel.JobStatus.RUNNING -> CircularProgressIndicator(
-                modifier = Modifier.size(12.dp),
-                color = BossThemeColors.AccentColor,
-                strokeWidth = 2.dp,
-            )
-            ToolCreatorViewModel.JobStatus.SUCCESS -> Icon(
-                FeatherIcons.Check,
-                contentDescription = "Succeeded",
-                tint = BossThemeColors.SuccessColor,
-                modifier = Modifier.size(12.dp),
-            )
-            ToolCreatorViewModel.JobStatus.FAILED -> Icon(
-                FeatherIcons.AlertTriangle,
-                contentDescription = "Failed",
-                tint = BossThemeColors.ErrorColor,
-                modifier = Modifier.size(12.dp),
-            )
+    var showLog by remember(job.id) { mutableStateOf(false) }
+    val statusColor = when (job.status) {
+        ToolCreatorViewModel.JobStatus.RUNNING -> BossThemeColors.AccentColor
+        ToolCreatorViewModel.JobStatus.SUCCESS -> BossThemeColors.SuccessColor
+        ToolCreatorViewModel.JobStatus.FAILED -> BossThemeColors.ErrorColor
+    }
+    CreatorCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (job.status == ToolCreatorViewModel.JobStatus.RUNNING) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = statusColor, strokeWidth = 2.dp)
+            } else {
+                Icon(if (job.status == ToolCreatorViewModel.JobStatus.SUCCESS) FeatherIcons.Check else FeatherIcons.AlertTriangle,
+                    null, tint = statusColor, modifier = Modifier.size(16.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(job.toolName, color = BossThemeColors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(when (job.status) {
+                    ToolCreatorViewModel.JobStatus.RUNNING -> "Preparing project…"
+                    ToolCreatorViewModel.JobStatus.SUCCESS -> "Project ready · ${job.agent.displayName}"
+                    ToolCreatorViewModel.JobStatus.FAILED -> "Setup needs attention"
+                }, color = statusColor, fontSize = 11.sp)
+            }
         }
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(job.toolName, color = BossThemeColors.TextPrimary, fontSize = 12.sp)
-            Text(
-                job.path,
-                color = BossThemeColors.TextMuted,
-                fontSize = 10.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (job.status != ToolCreatorViewModel.JobStatus.SUCCESS) {
-                job.log.lastOrNull()?.let { line ->
-                    Text(
-                        line,
-                        color = if (job.status == ToolCreatorViewModel.JobStatus.FAILED)
-                            BossThemeColors.ErrorColor else BossThemeColors.TextMuted,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+        Text(job.path, color = BossThemeColors.TextMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        job.log.lastOrNull()?.let {
+            Text(it, color = if (job.status == ToolCreatorViewModel.JobStatus.FAILED) BossThemeColors.ErrorColor else BossThemeColors.TextSecondary,
+                fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+        if (job.status != ToolCreatorViewModel.JobStatus.RUNNING) {
+            TextButton(onClick = { viewModel.reopenTerminal(job) }) {
+                Icon(FeatherIcons.RefreshCw, null, tint = BossThemeColors.AccentColor, modifier = Modifier.size(13.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Open ${job.agent.displayName}", color = BossThemeColors.AccentColor, fontSize = 12.sp)
+            }
+        }
+        if (job.log.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = { showLog = !showLog }) {
+                    Text(if (showLog) "Hide setup log" else "Show setup log", color = BossThemeColors.TextSecondary, fontSize = 11.sp)
+                }
+                Spacer(Modifier.weight(1f))
+                if (job.status != ToolCreatorViewModel.JobStatus.RUNNING) {
+                    TextButton(onClick = { viewModel.dismissJob(job) }) { Text("Dismiss", color = BossThemeColors.TextMuted, fontSize = 11.sp) }
                 }
             }
         }
-        when (job.status) {
-            ToolCreatorViewModel.JobStatus.RUNNING -> {}
-            ToolCreatorViewModel.JobStatus.SUCCESS -> TextButton(onClick = { viewModel.reopenTerminal(job) }) {
-                Icon(
-                    FeatherIcons.RefreshCw,
-                    contentDescription = "Reopen ${job.agent.displayName}",
-                    tint = BossThemeColors.AccentColor,
-                    modifier = Modifier.size(12.dp),
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(job.agent.displayName, color = BossThemeColors.AccentColor, fontSize = 11.sp)
-            }
-            ToolCreatorViewModel.JobStatus.FAILED -> TextButton(onClick = { viewModel.dismissJob(job) }) {
-                Text("Dismiss", color = BossThemeColors.TextSecondary, fontSize = 11.sp)
-            }
+        if (showLog) {
+            Divider(color = BossThemeColors.BorderColor)
+            Text(job.log.joinToString("\n"), color = BossThemeColors.TextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
         }
     }
 }
 
 @Composable
 private fun CreateToolDialog(viewModel: ToolCreatorViewModel) {
+    val screen = remember { java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds }
     DialogWindow(
-        onCloseRequest = { viewModel.dismissDialog() },
-        state = rememberDialogState(width = 520.dp, height = 680.dp),
-        title = "Create New Tool",
-    ) {
-        CreateToolForm(viewModel, window)
-    }
+        onCloseRequest = viewModel::dismissDialog,
+        state = rememberDialogState(width = minOf(620, screen.width - 80).dp, height = minOf(780, screen.height - 120).dp),
+        title = "Create a BOSS plugin",
+    ) { CreateToolForm(viewModel, window) }
 }
 
-// The dialog window is its own composition root — composition locals from the
-// panel (including theme) don't reach it, so BossTheme is re-applied here.
+// The native dialog has its own composition root, so apply the host theme here too.
 @Composable
 private fun CreateToolForm(viewModel: ToolCreatorViewModel, dialogWindow: java.awt.Window?) {
     val form by viewModel.form.collectAsState()
     val env by viewModel.env.collectAsState()
     val publishApiKey by viewModel.publishApiKey.collectAsState()
-
     BossTheme {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = BossThemeColors.SurfaceColor,
-        ) {
-            Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
-                if (publishApiKey.shouldShowSection) {
-                    PublishApiKeySection(
-                        state = publishApiKey,
-                        onCreate = viewModel::createPublishApiKey,
-                        onCopy = viewModel::copyPublishApiKey,
-                        onRetry = viewModel::refreshPublishApiKeyStatus,
-                    )
-                    Spacer(Modifier.height(12.dp))
+        Surface(Modifier.fillMaxSize(), color = BossThemeColors.SurfaceColor) {
+            Column(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Create a plugin", color = BossThemeColors.TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text("A ready-to-build project, with an agent to bring it to life.", color = BossThemeColors.TextSecondary, fontSize = 12.sp)
                 }
-                DialogTextField(
-                    value = form.toolName,
-                    onValueChange = viewModel::setToolName,
-                    label = "Plugin name",
-                    placeholder = "e.g. Invoice Extractor",
-                )
-                Spacer(Modifier.height(8.dp))
-                DialogTextField(
-                    value = form.description,
-                    onValueChange = viewModel::setDescription,
-                    label = "Tool description",
-                    placeholder = "What should this tool do?",
-                    singleLine = false,
-                    minHeight = 72.dp,
-                )
-
-                Spacer(Modifier.height(12.dp))
-                var permissionsExpanded by remember { mutableStateOf(false) }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                        .clickable { permissionsExpanded = !permissionsExpanded },
+                Divider(color = BossThemeColors.BorderColor)
+                Column(
+                    Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Icon(
-                        if (permissionsExpanded) FeatherIcons.ChevronDown else FeatherIcons.ChevronRight,
-                        contentDescription = if (permissionsExpanded) "Collapse permissions" else "Expand permissions",
-                        tint = BossThemeColors.TextSecondary,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text("Tool permissions", color = BossThemeColors.TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        if (form.permissions.isEmpty()) "none selected" else "${form.permissions.size} selected",
-                        color = BossThemeColors.TextMuted,
-                        fontSize = 10.sp,
-                    )
-                }
-                if (permissionsExpanded) {
-                    Spacer(Modifier.height(4.dp))
-                    ToolPermission.entries.forEach { permission ->
+                    CreatorCard {
+                        WorkflowStep("1", "Describe your plugin", "Give the agent a clear goal and the details it needs.")
+                        DialogTextField(form.toolName, viewModel::setToolName, "Plugin name", "e.g. Invoice Extractor")
+                        DialogTextField(form.description, viewModel::setDescription, "What should it do?", "Describe the workflow, inputs, and result you want.", singleLine = false, minHeight = 100.dp)
+                        var expanded by remember { mutableStateOf(false) }
                         Row(
+                            Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Checkbox(
-                                checked = permission in form.permissions,
-                                onCheckedChange = { viewModel.togglePermission(permission) },
-                                colors = CheckboxDefaults.colors(
-                                    checkedColor = BossThemeColors.AccentColor,
-                                    uncheckedColor = BossThemeColors.TextMuted,
-                                ),
-                            )
-                            Column {
-                                Text(permission.label, color = BossThemeColors.TextPrimary, fontSize = 12.sp)
-                                Text(permission.description, color = BossThemeColors.TextMuted, fontSize = 10.sp)
+                            Icon(if (expanded) FeatherIcons.ChevronDown else FeatherIcons.ChevronRight, null, tint = BossThemeColors.TextSecondary, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Capabilities", color = BossThemeColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.weight(1f))
+                            Text("${form.permissions.size} selected", color = BossThemeColors.TextMuted, fontSize = 11.sp)
+                        }
+                        if (expanded) {
+                            Text("Tell the agent which capabilities your tool needs. These guide implementation; they do not grant account permissions.", color = BossThemeColors.TextSecondary, fontSize = 11.sp)
+                            ToolPermission.entries.forEach { permission ->
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(permission in form.permissions, { viewModel.togglePermission(permission) },
+                                        colors = CheckboxDefaults.colors(checkedColor = BossThemeColors.AccentColor, uncheckedColor = BossThemeColors.TextMuted))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(permission.label, color = BossThemeColors.TextPrimary, fontSize = 12.sp)
+                                        Text(permission.description, color = BossThemeColors.TextMuted, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        } else if (form.permissions.isNotEmpty()) {
+                            Text(form.permissions.sortedBy { it.ordinal }.joinToString { it.label }, color = BossThemeColors.TextMuted, fontSize = 11.sp)
+                        }
+                    }
+                    CreatorCard {
+                        WorkflowStep("2", "Choose your coding agent", "Fluck works inside BOSS. CLI agents open in a terminal.")
+                        AgentChoice(CliAgent.FLUCK_AGENT, form.agent == CliAgent.FLUCK_AGENT, env.checked && !env.fluckAvailable,
+                            { viewModel.setAgent(CliAgent.FLUCK_AGENT) }, Modifier.fillMaxWidth())
+                        BoxWithConstraints {
+                            val columns = if (maxWidth < 420.dp) 1 else 2
+                            CliAgent.entries.filterNot { it.isNative }.chunked(columns).let { rows ->
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    rows.forEach { agents ->
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            agents.forEach { agent ->
+                                                AgentChoice(agent, form.agent == agent, env.checked && agent in env.missingAgents,
+                                                    { viewModel.setAgent(agent) }, Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
+                        if (form.agent.isNative && env.checked && !env.fluckAvailable) {
+                            FormNotice("Install or enable Fluck Agent in the Toolbox. If it is already enabled, update BOSS and Fluck, then reopen this dialog.")
+                        } else if (!form.agent.isNative && env.checked && form.agent in env.missingAgents) {
+                            FormNotice("${form.agent.binary} was not found. Install it or choose another agent; shell-managed installations may still work.")
+                        }
                     }
-                } else if (form.permissions.isNotEmpty()) {
-                    Text(
-                        form.permissions.sortedBy { it.ordinal }.joinToString { it.label },
-                        color = BossThemeColors.TextMuted,
-                        fontSize = 10.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 18.dp, top = 2.dp),
-                    )
-                }
-
-                Spacer(Modifier.height(12.dp))
-                Text("Start building with", color = BossThemeColors.TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                CliAgent.entries.chunked(2).forEach { rowAgents ->
-                    Row(Modifier.fillMaxWidth()) {
-                        rowAgents.forEach { agent ->
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                RadioButton(
-                                    selected = form.agent == agent,
-                                    onClick = { viewModel.setAgent(agent) },
-                                    colors = RadioButtonDefaults.colors(
-                                        selectedColor = BossThemeColors.AccentColor,
-                                        unselectedColor = BossThemeColors.TextMuted,
-                                    ),
-                                )
-                                val missing = env.checked && agent in env.missingAgents
-                                Text(
-                                    if (missing) "${agent.displayName} (not installed)" else agent.displayName,
-                                    color = if (missing) BossThemeColors.TextMuted else BossThemeColors.TextPrimary,
-                                    fontSize = 12.sp,
-                                )
+                    CreatorCard {
+                        WorkflowStep("3", "Set up the repository", "Build locally, or connect GitHub for automated releases.")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) { DialogTextField(form.parentDir, viewModel::setParentDir, "Parent folder", "Where to create the project") }
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = { viewModel.browseParentDir(dialogWindow) }) {
+                                Icon(FeatherIcons.Folder, "Browse for parent folder", tint = BossThemeColors.AccentColor, modifier = Modifier.size(20.dp))
                             }
                         }
-                    }
-                }
-                if (env.checked && form.agent in env.missingAgents) {
-                    Text(
-                        "${form.agent.binary} was not found on PATH — install it or pick another agent (the terminal will fail otherwise)",
-                        color = BossThemeColors.WarningColor,
-                        fontSize = 10.sp,
-                    )
-                }
-                if (env.checked && !env.gitAvailable) {
-                    Text(
-                        "git was not found — the scaffold will skip repo init",
-                        color = BossThemeColors.WarningColor,
-                        fontSize = 10.sp,
-                    )
-                }
-
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Column(Modifier.weight(1f)) {
-                        DialogTextField(
-                            value = form.parentDir,
-                            onValueChange = viewModel::setParentDir,
-                            label = "Location",
-                            placeholder = "Parent directory for the new repo",
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = { viewModel.browseParentDir(dialogWindow) }) {
-                        Icon(
-                            FeatherIcons.Folder,
-                            contentDescription = "Browse",
-                            tint = BossThemeColors.AccentColor,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = form.createGitHubRepo,
-                        onCheckedChange = viewModel::setCreateGitHubRepo,
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = BossThemeColors.AccentColor,
-                            uncheckedColor = BossThemeColors.TextMuted,
-                        ),
-                    )
-                    Column {
-                        Text("Create GitHub repo + release CI", color = BossThemeColors.TextPrimary, fontSize = 12.sp)
-                        Text(
-                            "Uses gh to create risa-labs-inc/boss-plugin-…, install the publish secret, and register it as a boss_plugins submodule",
-                            color = BossThemeColors.TextMuted,
-                            fontSize = 10.sp,
-                        )
-                        if (form.createGitHubRepo && env.checked && !env.ghInstalled) {
-                            Text(
-                                "GitHub CLI (gh) was not found — this step will be skipped",
-                                color = BossThemeColors.WarningColor,
-                                fontSize = 10.sp,
-                            )
-                        } else if (form.createGitHubRepo && env.checked && !env.ghAuthenticated) {
-                            Text(
-                                "gh is not authenticated — run `gh auth login` first or this step will be skipped",
-                                color = BossThemeColors.WarningColor,
-                                fontSize = 10.sp,
-                            )
+                        if (form.toolName.isNotBlank()) {
+                            Text("Project folder: ${ScaffoldSpec(form.toolName, form.description, form.permissions, form.agent, form.parentDir, form.createGitHubRepo).repoDir.absolutePath}",
+                                color = BossThemeColors.TextMuted, fontSize = 11.sp)
                         }
+                        if (env.checked && !env.gitAvailable) FormNotice("Git was not found. Repository initialization will be skipped.")
+                        Row(verticalAlignment = Alignment.Top) {
+                            Checkbox(form.createGitHubRepo, viewModel::setCreateGitHubRepo,
+                                colors = CheckboxDefaults.colors(checkedColor = BossThemeColors.AccentColor, uncheckedColor = BossThemeColors.TextMuted))
+                            Column(Modifier.weight(1f).padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Create GitHub repository", color = BossThemeColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Creates a private repository in risa-labs-inc with release CI and your publishing secret. Requires GitHub organisation access.", color = BossThemeColors.TextSecondary, fontSize = 11.sp)
+                                Text("Leave this off to connect your own GitHub repository later.", color = BossThemeColors.TextMuted, fontSize = 11.sp)
+                            }
+                        }
+                        if (form.createGitHubRepo && env.checked && !env.ghInstalled) FormNotice("GitHub CLI (gh) was not found. GitHub setup will be skipped.")
+                        else if (form.createGitHubRepo && env.checked && !env.ghAuthenticated) FormNotice("Sign in with gh auth login to create the GitHub repository.")
+                        if (publishApiKey.shouldShowSection) PublishApiKeySection(publishApiKey, viewModel::createPublishApiKey, viewModel::copyPublishApiKey, viewModel::refreshPublishApiKeyStatus)
                     }
                 }
-
-                form.error?.let { error ->
-                    Spacer(Modifier.height(8.dp))
-                    Text(error, color = BossThemeColors.ErrorColor, fontSize = 11.sp)
-                }
-
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { viewModel.dismissDialog() }) {
-                        Text("Cancel", color = BossThemeColors.TextSecondary)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        onClick = { viewModel.startBuilding() },
-                        colors = ButtonDefaults.buttonColors(backgroundColor = BossThemeColors.AccentColor),
-                    ) {
-                        Text("Start building", color = BossThemeColors.TextPrimary)
+                Divider(color = BossThemeColors.BorderColor)
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    form.error?.let { Text(it, color = BossThemeColors.ErrorColor, fontSize = 12.sp) }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(viewModel::dismissDialog) { Text("Cancel", color = BossThemeColors.TextSecondary) }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = viewModel::startBuilding,
+                            enabled = !(form.agent.isNative && env.checked && !env.fluckAvailable),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(backgroundColor = BossThemeColors.AccentColor),
+                        ) { Text("Create & open ${form.agent.displayName}", color = BossThemeColors.TextPrimary, fontSize = 12.sp) }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun AgentChoice(agent: CliAgent, selected: Boolean, unavailable: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val accent = BossThemeColors.AccentColor
+    Surface(
+        modifier = modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) accent.copy(alpha = 0.10f) else BossThemeColors.SurfaceColor,
+        border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) accent else BossThemeColors.BorderColor),
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(agent.displayName, color = BossThemeColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(when {
+                    unavailable && agent.isNative -> "Install or enable in Toolbox"
+                    unavailable -> "CLI not detected"
+                    agent.isNative -> "Inside BOSS · no CLI needed"
+                    else -> "Terminal · ${agent.binary}"
+                }, color = if (unavailable) BossThemeColors.WarningColor else BossThemeColors.TextMuted, fontSize = 11.sp)
+            }
+            if (selected) {
+                Spacer(Modifier.width(6.dp))
+                Icon(FeatherIcons.Check, "Selected", tint = accent, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun FormNotice(message: String) {
+    Text(message, color = BossThemeColors.WarningColor, fontSize = 11.sp)
 }
 
 private val ToolCreatorViewModel.PublishApiKeyState.shouldShowSection: Boolean
@@ -458,7 +390,7 @@ private fun ExistingPublishApiKey(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = BossThemeColors.SuccessColor.copy(alpha = 0.08f),
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, BossThemeColors.SuccessColor.copy(alpha = 0.4f)),
     ) {
         Column {
@@ -560,7 +492,7 @@ private fun MissingPublishApiKey(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = BossThemeColors.WarningColor.copy(alpha = 0.08f),
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, BossThemeColors.WarningColor.copy(alpha = 0.45f)),
     ) {
         Column(Modifier.padding(12.dp)) {
