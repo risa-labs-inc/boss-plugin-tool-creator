@@ -10,12 +10,15 @@ Scaffold new BOSS plugins and start building them with Claude Code, Codex, Gemin
 - **Main Class**: `ai.rever.boss.plugin.dynamic.toolcreator.ToolCreatorDynamicPlugin`
 - **API Version**: 1.0.51
 - **Install gate**: `requiredPermissions: ["plugins.create", "api_key.create"]` -
-  held by the `boss_plugin_admin` role and inherited by `boss_admin`; the `admin`
-  role bypasses permission checks. Enforced at store download, Toolbox install, and
+  granted to `user` on hosted BOSS and also held by `boss_plugin_admin`
+  (inherited by `boss_admin`);
+  `admin` bypasses permission checks. Enforced at store download, Toolbox install, and
   host activation. Do NOT use the legacy `requiresAdmin` flag (it matches only the
   literal `admin` role and would exclude `boss_plugin_admin`/`boss_admin`).
   Not `plugins.admin.publish` - that is store-wide moderation, and its RLS policy
   authorizes updates to any plugin regardless of author.
+
+User workflow: [Tool Creator → agent → GitHub → store](https://github.com/risa-labs-inc/BossConsole/wiki/Create-and-Publish-a-Plugin). Automatic GitHub setup targets `risa-labs-inc`; publishing permission does not grant GitHub organisation access. Keep the guide authoritative rather than duplicating its steps here.
 
 ## Essential Commands
 
@@ -46,10 +49,11 @@ The sidebar panel opens a creation dialog (plugin name, tool description,
 permissions, AI CLI picker). "Start building" then:
 
 1. `ScaffoldGenerator` renders `src/main/resources/scaffold/` templates into a
-   new repo (build files, gradle wrapper, plugin.json with the chosen
-   `requiredPermissions`, skeleton panel sources, and the CI caller workflows -
+   new repo (build files, gradle wrapper, plugin.json, skeleton panel sources,
+   and the CI caller workflows -
    release on push to `main` plus Claude Code review on PRs, both delegating to
    shared workflows in `risa-labs-inc/BossConsole-Releases`).
+   Chosen capabilities only shape the skill and README; they do not populate `requiredPermissions`.
 2. Writes the `tool-creator` skill in all four CLI formats:
    `.claude/skills/tool-creator/SKILL.md`, `.codex/skills/tool-creator/SKILL.md`,
    `.gemini/commands/tool-creator.toml`, `.opencode/command/tool-creator.md` -
