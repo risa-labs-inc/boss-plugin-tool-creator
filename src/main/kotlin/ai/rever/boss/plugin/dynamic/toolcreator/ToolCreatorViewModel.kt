@@ -654,9 +654,14 @@ class ToolCreatorViewModel(
     }
 
     companion object {
-        fun defaultParentDir(): String =
-            File(System.getProperty("user.home"), "BossTools")
-                .apply { mkdirs() }
-                .absolutePath
+        fun defaultParentDir(): String = defaultParentDir(System.getProperty("user.home"))
+
+        internal fun defaultParentDir(userHome: String): String {
+            val bossRoot = File(userHome, ".boss").canonicalFile
+            val tools = File(bossRoot, "workspaces/tools").canonicalFile
+            require(tools.toPath().startsWith(bossRoot.toPath())) { "tool workspace escaped the BOSS root" }
+            check(tools.exists() || tools.mkdirs()) { "Could not create BOSS tool workspace: $tools" }
+            return tools.absolutePath
+        }
     }
 }
